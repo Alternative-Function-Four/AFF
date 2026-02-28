@@ -357,6 +357,48 @@ class RecommendationRecord:
 
 
 @dataclass
+class RawEventRecord:
+    id: str
+    source_id: str
+    external_event_id: str | None
+    payload_ref: str
+    raw_title: str | None
+    raw_date_or_schedule: str | None
+    raw_location: str | None
+    raw_description: str | None
+    raw_price: str | None
+    raw_url: str | None
+    raw_media_url: str | None
+    captured_at: datetime
+
+
+@dataclass
+class EventSourceLinkRecord:
+    id: str
+    event_id: str
+    raw_event_id: str
+    source_id: str
+    source_url: str | None
+    external_event_id: str | None
+    merge_confidence: float
+    first_seen_at: datetime
+    last_seen_at: datetime
+
+
+@dataclass
+class RecommendationRecord:
+    id: str
+    user_id: str
+    event_id: str
+    context_hash: str
+    rank_position: int
+    relevance_score: float
+    reasons: list[str]
+    notify_immediately: bool
+    created_at: datetime
+
+
+@dataclass
 class InMemoryStore:
     users: dict[str, UserRecord] = field(default_factory=dict)
     users_by_email: dict[str, str] = field(default_factory=dict)
