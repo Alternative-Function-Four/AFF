@@ -831,6 +831,7 @@ async def seed_initial_data(session: AsyncSession) -> dict[str, Any]:
         deleted_at=None,
     )
     session.add_all([source_a, source_b, source_c])
+    await session.flush()
 
     event_a = Event(
         id="aaaaaaaa-1111-4111-8111-111111111111",
