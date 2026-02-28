@@ -95,7 +95,7 @@ async def post_admin_source(
     return created
 
 
-@router.post("/v1/admin/sources/{source_id}", response_model=Source)
+@router.post("/v1/admin/sources/{source_id}/approve", response_model=Source)
 async def post_admin_source_approve(
     source_id: UUID,
     payload: SourceApprovalRequest,
