@@ -1,27 +1,14 @@
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
+from core.settings import settings
+from entities import Base
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from entities import Base
 
-_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./aff.db")
-
-
-def _normalize_database_url(value: str) -> str:
-    if value.startswith("postgres://"):
-        return "postgresql+asyncpg://" + value[len("postgres://") :]
-    if value.startswith("postgresql://"):
-        return "postgresql+asyncpg://" + value[len("postgresql://") :]
-    if value.startswith("sqlite:///"):
-        return "sqlite+aiosqlite:///" + value[len("sqlite:///") :]
-    return value
-
-
-DATABASE_URL = _normalize_database_url(_DATABASE_URL)
+DATABASE_URL = settings.normalized_database_url()
 
 
 engine = create_async_engine(

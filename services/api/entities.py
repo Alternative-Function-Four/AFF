@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Float,
+    ForeignKeyConstraint,
     ForeignKey,
     Integer,
     String,
@@ -88,7 +89,36 @@ class Source(Base):
     crawl_frequency_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
     terms_url: Mapped[str | None] = mapped_column(String(512))
     notes: Mapped[str | None] = mapped_column(Text())
+    page_title: Mapped[str | None] = mapped_column(String(255))
+    discovery_description: Mapped[str | None] = mapped_column(Text())
+    discovery_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON())
+    discovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Topic(Base):
+    __tablename__ = "topics"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    slug: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    city: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class SourceTopicLink(Base):
+    __tablename__ = "source_topic_links"
+
+    source_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    topic_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(["source_id"], ["sources.id"], ondelete="CASCADE"),
+        ForeignKeyConstraint(["topic_id"], ["topics.id"], ondelete="CASCADE"),
+    )
 
 
 class Event(Base):

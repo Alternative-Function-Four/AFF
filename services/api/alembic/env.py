@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 from logging.config import fileConfig
 from pathlib import Path
@@ -25,6 +24,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from core.settings import settings
 from entities import Base
 from database import DATABASE_URL
 
@@ -34,23 +34,13 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 
-def _normalize_database_url(url: str) -> str:
-    if url.startswith("postgres://"):
-        return "postgresql+asyncpg://" + url[len("postgres://") :]
-    if url.startswith("postgresql://"):
-        return "postgresql+asyncpg://" + url[len("postgresql://") :]
-    if url.startswith("sqlite:///"):
-        return "sqlite+aiosqlite:///" + url[len("sqlite:///") :]
-    return url
-
-
 target_metadata = Base.metadata
 
 
 def _url() -> str:
-    return _normalize_database_url(
-        os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url", DATABASE_URL)),
-    )
+    if DATABASE_URL:
+        return settings.normalized_database_url()
+    return config.get_main_option("sqlalchemy.url", "") or ""
 
 
 def run_migrations_offline() -> None:
