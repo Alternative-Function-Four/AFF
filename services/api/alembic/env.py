@@ -10,8 +10,16 @@ from logging.config import fileConfig
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
+_CANDIDATE_ROOTS = {
+    _PROJECT_ROOT,
+    _PROJECT_ROOT / "services" / "api",
+    _PROJECT_ROOT.parent,
+    Path(__file__).resolve().parent,
+    Path.cwd(),
+}
+for _root in _CANDIDATE_ROOTS:
+    if _root.is_dir() and str(_root) not in sys.path:
+        sys.path.insert(0, str(_root))
 
 from alembic import context
 from sqlalchemy import pool

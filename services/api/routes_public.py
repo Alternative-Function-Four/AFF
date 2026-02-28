@@ -9,13 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from constants import MAX_NOTIFICATIONS_PER_DAY, TOKEN_TTL_HOURS
 from dependencies import APIError, get_current_user, get_db_session, request_id_for
+from core import is_quiet_hours, now_sg
 from logic import (
     build_feed_score,
     default_preference_profile,
     event_matches_window,
-    is_quiet_hours,
     notifications_count_today,
-    now_sg,
 )
 from models import (
     AuthSessionResponse,

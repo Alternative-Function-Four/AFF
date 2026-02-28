@@ -12,4 +12,4 @@ test:
 	cd $(API_DIR) && $(UV) run pytest -q
 
 lint:
-	cd $(API_DIR) && $(UV) run ruff check .
+	cd $(API_DIR) && $(UV) run ruff check . && $(UV) run pyrefly check .

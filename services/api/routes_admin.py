@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_contracts import deduplicate_event_agent, normalize_event_agent
 from dependencies import APIError, get_admin_user, get_db_session
-from logic import build_similar_events, now_sg
+from core import now_sg
+from logic import build_similar_events
 from models import (
     EventOccurrence,
     EventRecord,
@@ -262,106 +263,106 @@ async def post_admin_ingestion_run(
                 payload=dedup["error"],
             )
             continue
-
-        decision = dedup["data"]
-        action = decision["merge_action"]
-        merge_actions.append(action)
-        await increment_metric(db, "dedup_merge_action_total", action=action)
-        await append_ingestion_log(
-            db,
-            run_id=run_id,
-            level="info",
-            message="Deduplication decision computed",
-            user_id=admin_user.id,
-            source_id=str(source.id),
-            payload=decision,
-        )
-
-        if action == "create_new":
-            event_id = str(uuid4())
-            start = datetime.fromisoformat(normalized_event["datetime_start"])
-            end_value = normalized_event.get("datetime_end")
-            end = datetime.fromisoformat(end_value) if end_value else None
-            new_event = EventRecord(
-                event_id=event_id,
-                title=normalized_event["title"],
-                category=normalized_event["category"],
-                subcategory=normalized_event.get("subcategory"),
-                description=normalized_event.get("description"),
-                venue_name=normalized_event.get("venue_name"),
-                venue_address=normalized_event.get("venue_address"),
-                occurrences=[
-                    EventOccurrence(
-                        datetime_start=start,
-                        datetime_end=end,
-                        timezone="Asia/Singapore",
-                    )
-                ],
-                price=Price(
-                    min=normalized_event.get("price_min"),
-                    max=normalized_event.get("price_max"),
-                    currency=normalized_event.get("currency"),
-                ),
-                source_provenance=[
-                    SourceProvenance(
-                        source_id=source.id,
-                        source_name=source.name,
-                        source_url=str(source.url),
-                    )
-                ],
-            )
-            await create_event(db, new_event)
-            await create_event_source_link(
+        else:
+            decision = dedup["data"]
+            action = decision["merge_action"]
+            merge_actions.append(action)
+            await increment_metric(db, "dedup_merge_action_total", action=action)
+            await append_ingestion_log(
                 db,
-                EventSourceLinkRecord(
-                    id=str(uuid4()),
+                run_id=run_id,
+                level="info",
+                message="Deduplication decision computed",
+                user_id=admin_user.id,
+                source_id=str(source.id),
+                payload=decision,
+            )
+
+            if action == "create_new":
+                event_id = str(uuid4())
+                start = datetime.fromisoformat(normalized_event["datetime_start"])
+                end_value = normalized_event.get("datetime_end")
+                end = datetime.fromisoformat(end_value) if end_value else None
+                new_event = EventRecord(
                     event_id=event_id,
-                    raw_event_id=raw_event_id,
+                    title=normalized_event["title"],
+                    category=normalized_event["category"],
+                    subcategory=normalized_event.get("subcategory"),
+                    description=normalized_event.get("description"),
+                    venue_name=normalized_event.get("venue_name"),
+                    venue_address=normalized_event.get("venue_address"),
+                    occurrences=[
+                        EventOccurrence(
+                            datetime_start=start,
+                            datetime_end=end,
+                            timezone="Asia/Singapore",
+                        )
+                    ],
+                    price=Price(
+                        min=normalized_event.get("price_min"),
+                        max=normalized_event.get("price_max"),
+                        currency=normalized_event.get("currency"),
+                    ),
+                    source_provenance=[
+                        SourceProvenance(
+                            source_id=source.id,
+                            source_name=source.name,
+                            source_url=str(source.url),
+                        )
+                    ],
+                )
+                await create_event(db, new_event)
+                await create_event_source_link(
+                    db,
+                    EventSourceLinkRecord(
+                        id=str(uuid4()),
+                        event_id=event_id,
+                        raw_event_id=raw_event_id,
+                        source_id=str(source.id),
+                        source_url=str(source.url),
+                        external_event_id=None,
+                        merge_confidence=float(decision["confidence"]),
+                        first_seen_at=captured_at,
+                        last_seen_at=captured_at,
+                    ),
+                )
+                created_events += 1
+                await append_ingestion_log(
+                    db,
+                    run_id=run_id,
+                    level="info",
+                    message="Created canonical event from ingestion",
+                    user_id=admin_user.id,
                     source_id=str(source.id),
-                    source_url=str(source.url),
-                    external_event_id=None,
-                    merge_confidence=float(decision["confidence"]),
-                    first_seen_at=captured_at,
-                    last_seen_at=captured_at,
-                ),
-            )
-            created_events += 1
-            await append_ingestion_log(
-                db,
-                run_id=run_id,
-                level="info",
-                message="Created canonical event from ingestion",
-                user_id=admin_user.id,
-                source_id=str(source.id),
-                event_id=event_id,
-                payload={"title": new_event.title},
-            )
-        elif decision.get("duplicate_of_id"):
-            await append_ingestion_log(
-                db,
-                run_id=run_id,
-                level="info",
-                message="Deduplicated into existing event",
-                user_id=admin_user.id,
-                source_id=str(source.id),
-                event_id=str(decision["duplicate_of_id"]),
-                payload={"target_event_id": decision["duplicate_of_id"]},
-            )
-
-            await create_event_source_link(
-                db,
-                EventSourceLinkRecord(
-                    id=str(uuid4()),
+                    event_id=event_id,
+                    payload={"title": new_event.title},
+                )
+            elif decision.get("duplicate_of_id"):
+                await append_ingestion_log(
+                    db,
+                    run_id=run_id,
+                    level="info",
+                    message="Deduplicated into existing event",
+                    user_id=admin_user.id,
+                    source_id=str(source.id),
                     event_id=str(decision["duplicate_of_id"]),
-                    raw_event_id=raw_event_id,
-                    source_id=str(source.id),
-                    source_url=str(source.url),
-                    external_event_id=None,
-                    merge_confidence=float(decision["confidence"]),
-                    first_seen_at=captured_at,
-                    last_seen_at=captured_at,
-                ),
-            )
+                    payload={"target_event_id": decision["duplicate_of_id"]},
+                )
+
+                await create_event_source_link(
+                    db,
+                    EventSourceLinkRecord(
+                        id=str(uuid4()),
+                        event_id=str(decision["duplicate_of_id"]),
+                        raw_event_id=raw_event_id,
+                        source_id=str(source.id),
+                        source_url=str(source.url),
+                        external_event_id=None,
+                        merge_confidence=float(decision["confidence"]),
+                        first_seen_at=captured_at,
+                        last_seen_at=captured_at,
+                    ),
+                )
 
     await create_ingestion_job(
         db,

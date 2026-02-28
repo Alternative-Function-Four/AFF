@@ -28,12 +28,13 @@ from entities import (
     Source,
     User,
 )
-from logic import make_ingestion_metrics
+from core import make_ingestion_metrics
 from models import (
     EventOccurrence as EventOccurrenceModel,
     EventRecord,
     EventSourceLinkRecord,
     InteractionRecord,
+    FlexibleObject,
     NotificationLog,
     PreferenceProfile,
     Price,
@@ -170,7 +171,7 @@ def to_interaction(row: Interaction) -> InteractionRecord:
         user_id=row.user_id,
         event_id=row.event_id,
         signal=row.signal,
-        context=row.context,
+        context=FlexibleObject.model_validate(row.context),
         created_at=row.created_at,
     )
 
@@ -313,7 +314,7 @@ async def get_store_snapshot(session: AsyncSession) -> dict[str, Any]:
     notifications_result = await session.execute(
         select(Notification).order_by(desc(Notification.created_at))
     )
-    notification_records = [to_notification(row) for row in notifications_result.scalars().all()]
+    notification_rows = notifications_result.scalars().all()
 
     return {
         "users": {item.id: item for item in users},
@@ -328,7 +329,7 @@ async def get_store_snapshot(session: AsyncSession) -> dict[str, Any]:
         "raw_events": {item.id: item for item in raw_events},
         "event_source_links": event_source_links,
         "recommendations": recommendations,
-        "notification_logs": [(row.user_id, row) for row in notification_records],
+        "notification_logs": [(row.user_id, to_notification(row)) for row in notification_rows],
         "ingestion_jobs": ingestion_jobs,
         "ingestion_metrics": ingestion_metrics,
         "ingestion_logs": ingestion_logs,
@@ -668,7 +669,7 @@ async def create_interaction(
         user_id=row.user_id,
         event_id=row.event_id,
         signal=row.signal,
-        context=row.context,
+        context=dict(row.context),
         created_at=row.created_at,
     )
     session_db.add(payload)

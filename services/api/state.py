@@ -5,8 +5,9 @@ from datetime import datetime
 from typing import Any
 
 from constants import SG_TZ
-from logic import make_ingestion_metrics, now_sg
+from core import make_ingestion_metrics, now_sg
 from models import InMemoryStore
+from models import IngestionMetrics
 
 
 def create_seed_store() -> InMemoryStore:
@@ -33,7 +34,13 @@ def _apply_snapshot(snapshot: dict[str, Any]) -> InMemoryStore:
     STORE.recommendations = snapshot.get("recommendations", [])
     STORE.notification_logs = snapshot.get("notification_logs", [])
     STORE.ingestion_jobs = snapshot.get("ingestion_jobs", [])
-    STORE.ingestion_metrics = snapshot.get("ingestion_metrics", make_ingestion_metrics())
+    raw_metrics = snapshot.get("ingestion_metrics")
+    if isinstance(raw_metrics, IngestionMetrics):
+        STORE.ingestion_metrics = raw_metrics
+    elif isinstance(raw_metrics, dict):
+        STORE.ingestion_metrics = IngestionMetrics.model_validate(raw_metrics)
+    else:
+        STORE.ingestion_metrics = make_ingestion_metrics()
     STORE.ingestion_logs = snapshot.get("ingestion_logs", [])
     STORE.now_provider = now_provider
     return STORE

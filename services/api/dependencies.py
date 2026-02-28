@@ -7,10 +7,11 @@ from fastapi import Depends, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from logic import now_sg
+from core import now_sg
 from models import ErrorEnvelope, UserRecord
 from state import STORE
 from storage_service import get_session, get_user_by_id
@@ -121,7 +122,7 @@ def register_handlers(app: Any) -> None:
         )
 
 
-async def get_db_session() -> AsyncSession:
+async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     from database import get_db_session as get_db_session_ctx
 
     async with get_db_session_ctx() as session:
