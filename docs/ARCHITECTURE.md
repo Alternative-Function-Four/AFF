@@ -12,6 +12,7 @@ This document is a concise index. Detailed architecture specifications live in `
 ## Detailed Specs
 
 - `docs/spec/02-architecture/SYSTEM_ARCHITECTURE.md`
+- `docs/spec/02-architecture/FRONTEND_CLIENT_ARCHITECTURE.md`
 - `docs/spec/02-architecture/AGENT_CONTRACTS.md`
 - `docs/spec/03-data/DATA_MODEL.md`
 - `docs/spec/03-data/SOURCE_POLICY.md`
