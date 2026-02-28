@@ -167,6 +167,9 @@ class Event(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    popularity_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    quality_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.7)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     occurrences: Mapped[list["EventOccurrence"]] = relationship(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 import hashlib
+import math
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -33,9 +34,13 @@ from models import (
     NotificationPriority,
     NotificationStatus,
     PasswordLoginRequest,
+    PersonalizedFeedItem,
+    PersonalizedFeedRequest,
+    PersonalizedFeedResponse,
     PreferenceProfile,
     PreferenceProfileInput,
     RecommendationRecord,
+    ScoreBreakdown,
     TestNotificationRequest,
     TestNotificationResponse,
     TimeWindow,
@@ -56,6 +61,7 @@ from storage_service import (
     list_events,
     list_interactions,
     list_notifications_for_user,
+    list_personalized_event_candidates,
     save_preference,
 )
 
@@ -87,6 +93,61 @@ async def ensure_preferences(db: AsyncSession, user_id: str) -> PreferenceProfil
     profile = default_preference_profile(user_id=user_id, now=now_sg(STORE))
     await save_preference(db, profile)
     return profile
+
+
+def _build_query_embedding(payload: PersonalizedFeedRequest, profile: PreferenceProfile) -> list[float]:
+    seed_text = " ".join(
+        [
+            payload.query_text or "",
+            " ".join(payload.categories or profile.preferred_categories),
+            " ".join(payload.subcategories or profile.preferred_subcategories),
+            " ".join(profile.anti_preferences),
+        ]
+    ).strip()
+    if not seed_text:
+        return [0.0] * 8
+
+    dims = 8
+    vector = [0.0] * dims
+    for token in seed_text.lower().split():
+        digest = hashlib.sha256(token.encode("utf-8")).digest()
+        for index in range(dims):
+            bucket = digest[index]
+            vector[index] += (bucket / 255.0) - 0.5
+    norm = math.sqrt(sum(value * value for value in vector))
+    if norm == 0:
+        return [0.0] * dims
+    return [round(value / norm, 6) for value in vector]
+
+
+def _apply_diversity(
+    candidates: list[dict[str, object]],
+    *,
+    diversity_strength: float,
+    limit: int,
+) -> list[dict[str, object]]:
+    remaining = candidates[:]
+    selected: list[dict[str, object]] = []
+    category_counts: dict[str, int] = {}
+
+    while remaining and len(selected) < limit:
+        best_idx = 0
+        best_adjusted = -1.0
+        for idx, item in enumerate(remaining):
+            category = str(item.get("category") or "")
+            base_score = float(item.get("blended_score") or 0.0)
+            category_repeat = category_counts.get(category, 0)
+            penalty = diversity_strength * (0.15 * category_repeat)
+            adjusted = max(0.0, base_score - penalty)
+            if adjusted > best_adjusted:
+                best_adjusted = adjusted
+                best_idx = idx
+        chosen = remaining.pop(best_idx)
+        chosen["relevance_score"] = round(best_adjusted, 4)
+        selected.append(chosen)
+        category = str(chosen.get("category") or "")
+        category_counts[category] = category_counts.get(category, 0) + 1
+    return selected
 
 
 @router.get("/health")
@@ -283,6 +344,89 @@ async def get_feed(
         coverage_warning=coverage_warning,
         request_id=request_id_for(request),
     )
+
+
+@router.post("/v1/feed/personalized", response_model=PersonalizedFeedResponse)
+async def get_personalized_feed(
+    request: Request,
+    payload: PersonalizedFeedRequest,
+    db: AsyncSession = Depends(get_db_session),
+    user: UserRecord = Depends(get_current_user),
+) -> PersonalizedFeedResponse:
+    profile = await ensure_preferences(db, user.id)
+    now = now_sg(STORE)
+    starts_after = payload.starts_after or now
+    starts_before = payload.starts_before or (now + timedelta(days=14))
+    categories = payload.categories or list(profile.preferred_categories)
+    subcategories = payload.subcategories or list(profile.preferred_subcategories)
+    query_embedding = _build_query_embedding(payload, profile)
+
+    candidates = await list_personalized_event_candidates(
+        db,
+        query_embedding=query_embedding,
+        categories=categories,
+        subcategories=subcategories,
+        starts_after=starts_after,
+        starts_before=starts_before,
+        max_price=payload.max_price,
+        limit=payload.limit,
+    )
+    diversified = _apply_diversity(
+        candidates,
+        diversity_strength=payload.diversity_strength,
+        limit=payload.limit,
+    )
+
+    items: list[PersonalizedFeedItem] = []
+    for item in diversified:
+        reasons = [
+            "Vector similarity match",
+            "Recent and timely event",
+            "Popularity and source quality adjusted",
+        ]
+        if categories and str(item["category"]) in categories:
+            reasons.append("Matches hard category filter")
+
+        items.append(
+            PersonalizedFeedItem(
+                event_id=UUID(str(item["event_id"])),
+                title=str(item["title"]),
+                category=str(item["category"]),
+                subcategory=(
+                    str(item["subcategory"])
+                    if item.get("subcategory") is not None
+                    else None
+                ),
+                datetime_start=item["next_start"],
+                venue_name=(
+                    str(item["venue_name"])
+                    if item.get("venue_name") is not None
+                    else None
+                ),
+                price=(
+                    None
+                    if item.get("price_min") is None
+                    and item.get("price_max") is None
+                    and item.get("currency") is None
+                    else {
+                        "min": item.get("price_min"),
+                        "max": item.get("price_max"),
+                        "currency": item.get("currency"),
+                    }
+                ),
+                relevance_score=float(item["relevance_score"]),
+                score_breakdown=ScoreBreakdown(
+                    blended=float(item["blended_score"]),
+                    similarity=float(item["score_similarity"]),
+                    freshness=float(item["score_freshness"]),
+                    popularity=float(item["score_popularity"]),
+                    quality=float(item["score_quality"]),
+                ),
+                reasons=reasons,
+            )
+        )
+
+    return PersonalizedFeedResponse(items=items, request_id=request_id_for(request))
 
 
 @router.get("/v1/events/{event_id}", response_model=EventDetail)
