@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pydantic import BaseModel, Field
@@ -176,6 +177,11 @@ def _as_sg_now() -> datetime:
     return datetime.now(SG_TZ)
 
 
+def _configure_openai_api_key() -> None:
+    if settings.openai_api_key is not None:
+        os.environ["OPENAI_API_KEY"] = settings.openai_api_key.get_secret_value()
+
+
 def _build_discovery_agent() -> Agent[None, list[str]] | None:
     if settings.openai_api_key is None:
         return None
@@ -190,6 +196,7 @@ def _build_discovery_agent() -> Agent[None, list[str]] | None:
         return None
 
     try:
+        _configure_openai_api_key()
         model = OpenAIChatModel(model_name)
     except Exception:
         return None
@@ -221,6 +228,7 @@ def _build_scoring_agent() -> Agent[None, SourceQualityAssessment] | None:
         return None
 
     try:
+        _configure_openai_api_key()
         model = OpenAIChatModel(model_name)
     except Exception:
         return None
