@@ -7,6 +7,7 @@ PORT ?= 8000
 .PHONY: run test lint app-start app-web app-typecheck app-test
 
 run:
+	docker compose build --no-cache api && \
 	docker compose up --build
 
 test:
