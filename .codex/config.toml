@@ -1,0 +1,16 @@
+model = "gpt-5.3-codex"
+model_reasoning_effort = "medium"
+[mcp_servers]
+
+[mcp_servers.MCP_DOCKER]
+command = "docker"
+args = ["mcp", "gateway", "run"]
+
+[mcp_servers.playwright]
+command = "npx"
+args = ["@playwright/mcp@latest"]
+
+[mcp_servers.serena]
+args = ["--from", "git+https://github.com/oraios/serena", "serena-mcp-server", "--context", "ide-assistant", "--open-web-dashboard", "False"]
+command = "uvx"
+
