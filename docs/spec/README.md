@@ -12,7 +12,7 @@ This spec kit is the single source of truth for product scope, architecture, API
 - Launch geography: Singapore only
 - Architecture: modular monolith FastAPI API + separate async ingestion worker
 - Source policy: API/RSS/ICS first; HTML scraping only through explicit allowlist approval
-- MVP verticals: events + food + nightlife
+- MVP verticals: events + food + nightlife + sports + sightseeing + museums + outdoors + movies
 - Client scope: mobile app primary + lightweight admin; web build allowed only for debugging
 - Prototype auth: demo login required; OAuth and email-password are documented but optional implementation stubs
 - Deliverable: docs-only spec kit
