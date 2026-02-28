@@ -21,6 +21,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "greenlet" },
     { name = "httpx" },
     { name = "pyrefly" },
     { name = "pytest" },
@@ -43,6 +44,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "greenlet" },
     { name = "httpx" },
     { name = "pyrefly" },
     { name = "pytest" },
