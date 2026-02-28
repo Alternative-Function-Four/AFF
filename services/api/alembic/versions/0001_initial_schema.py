@@ -66,6 +66,7 @@ def upgrade() -> None:
         sa.Column("crawl_frequency_minutes", sa.Integer(), nullable=False),
         sa.Column("page_title", sa.String(length=255), nullable=True),
         sa.Column("discovery_description", sa.Text(), nullable=True),
+        sa.Column("discovery_metadata", sa.JSON(), nullable=True),
         sa.Column("discovery_embedding_text", sa.Text(), nullable=True),
         sa.Column("embedding", sa.JSON(), nullable=True),
         sa.Column("embedding_model", sa.String(length=64), nullable=True),

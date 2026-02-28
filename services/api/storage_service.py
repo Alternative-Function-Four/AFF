@@ -984,6 +984,7 @@ async def seed_initial_data(session: AsyncSession) -> dict[str, Any]:
         created_at=current,
     )
     session.add_all([topic_events, topic_food, topic_nightlife])
+    await session.flush()
 
     session.add_all([
         SourceTopicLink(
