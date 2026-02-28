@@ -93,7 +93,8 @@ clients/app/
       event/[eventId].tsx
       notifications.tsx
       preferences.tsx
-    (admin)/
+    admin/
+      _layout.tsx
       sources.tsx
       source/[sourceId].tsx
       ingestion.tsx
@@ -150,7 +151,7 @@ Build fails if API base URL is missing.
 Admin routes are hidden unless both conditions are true:
 
 - `EXPO_PUBLIC_ENABLE_ADMIN=true`
-- Authenticated user has admin role claim from API.
+- Authenticated `AuthSessionResponse.user.role` equals `admin`.
 
 ## 6.3 Screen Requirements
 

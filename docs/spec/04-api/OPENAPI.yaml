@@ -432,13 +432,16 @@ components:
 
     UserSummary:
       type: object
-      required: [id, display_name]
+      required: [id, display_name, role]
       properties:
         id:
           type: string
           format: uuid
         display_name:
           type: string
+        role:
+          type: string
+          enum: [member, admin]
 
     AuthSessionResponse:
       type: object

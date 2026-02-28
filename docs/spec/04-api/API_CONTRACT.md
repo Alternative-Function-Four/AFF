@@ -80,7 +80,8 @@ Common status codes:
   "expires_at": "2026-02-28T22:00:00+08:00",
   "user": {
     "id": "uuid",
-    "display_name": "Ari"
+    "display_name": "Ari",
+    "role": "member"
   }
 }
 ```
@@ -110,10 +111,17 @@ Common status codes:
   "expires_at": "2026-02-28T22:00:00+08:00",
   "user": {
     "id": "uuid",
-    "display_name": "user"
+    "display_name": "user",
+    "role": "member"
   }
 }
 ```
+
+`AuthSessionResponse.user` must include:
+
+- `id` uuid
+- `display_name` string
+- `role` enum: `member|admin`
 
 ## Preferences and Interactions
 
