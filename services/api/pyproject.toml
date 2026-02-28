@@ -12,6 +12,8 @@ dependencies = [
   "asyncpg",
   "aiosqlite",
   "alembic",
+  "pydantic-ai-slim[logfire,mcp,openai]>=1.63.0",
+  "pydantic",
 ]
 
 [dependency-groups]
