@@ -19,6 +19,9 @@ jobs:
         uses: astral-sh/setup-uv@v3
       - name: Install deps
         run: |
-          cd services/api
-          uv lock
-          uv sync --locked
+          uv lock --project services/api
+          uv sync --project services/api --locked --group dev
+      - name: Run linters
+        run: |
+          uv run --project services/api ruff check .
+          uv run --project services/api pyrefly check .
