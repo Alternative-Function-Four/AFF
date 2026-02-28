@@ -11,9 +11,11 @@ from logic import append_ingestion_log, build_similar_events, now_sg
 from models import (
     EventOccurrence,
     EventRecord,
+    EventSourceLinkRecord,
     IngestionRunRequest,
     IngestionRunResponse,
     Price,
+    RawEventRecord,
     Source,
     SourceAccessMethod,
     SourceApprovalDecision,
@@ -147,9 +149,10 @@ def post_admin_ingestion_run(
     merge_actions: list[str] = []
 
     for source in approved_sources:
+        captured_at = now_sg(STORE)
         raw_event = {
             "raw_title": f"{source.name} Featured Event",
-            "raw_date_or_schedule": now_sg(STORE).replace(
+            "raw_date_or_schedule": captured_at.replace(
                 hour=20,
                 minute=0,
                 second=0,
@@ -164,6 +167,22 @@ def post_admin_ingestion_run(
         if source.access_method == SourceAccessMethod.manual:
             raw_event["raw_date_or_schedule"] = ""
             raw_event["raw_location"] = ""
+
+        raw_event_id = str(uuid4())
+        STORE.raw_events[raw_event_id] = RawEventRecord(
+            id=raw_event_id,
+            source_id=str(source.id),
+            external_event_id=None,
+            payload_ref=f"ingestion://{run_id}/{raw_event_id}",
+            raw_title=raw_event.get("raw_title"),
+            raw_date_or_schedule=raw_event.get("raw_date_or_schedule"),
+            raw_location=raw_event.get("raw_location"),
+            raw_description=raw_event.get("raw_description"),
+            raw_price=raw_event.get("raw_price"),
+            raw_url=raw_event.get("raw_url"),
+            raw_media_url=None,
+            captured_at=captured_at,
+        )
 
         normalized = normalize_event_agent(
             payload={"raw_event": raw_event, "city_context": "Singapore"},
@@ -268,6 +287,19 @@ def post_admin_ingestion_run(
                 ],
             )
             STORE.events[event_id] = new_event
+            STORE.event_source_links.append(
+                EventSourceLinkRecord(
+                    id=str(uuid4()),
+                    event_id=event_id,
+                    raw_event_id=raw_event_id,
+                    source_id=str(source.id),
+                    source_url=str(source.url),
+                    external_event_id=None,
+                    merge_confidence=float(decision["confidence"]),
+                    first_seen_at=captured_at,
+                    last_seen_at=captured_at,
+                )
+            )
             created_events += 1
             append_ingestion_log(
                 STORE,
@@ -278,6 +310,20 @@ def post_admin_ingestion_run(
                 source_id=str(source.id),
                 event_id=event_id,
                 payload={"title": new_event.title},
+            )
+        elif decision.get("duplicate_of_id"):
+            STORE.event_source_links.append(
+                EventSourceLinkRecord(
+                    id=str(uuid4()),
+                    event_id=str(decision["duplicate_of_id"]),
+                    raw_event_id=raw_event_id,
+                    source_id=str(source.id),
+                    source_url=str(source.url),
+                    external_event_id=None,
+                    merge_confidence=float(decision["confidence"]),
+                    first_seen_at=captured_at,
+                    last_seen_at=captured_at,
+                )
             )
 
     STORE.ingestion_jobs.append(

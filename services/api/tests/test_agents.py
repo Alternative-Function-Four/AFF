@@ -91,6 +91,77 @@ def test_agent_error_envelope_shape_on_invalid_input() -> None:
     assert set(result["meta"].keys()) == {"agent", "version", "run_id"}
 
 
+def test_source_hunter_agent_returns_strict_ok_envelope() -> None:
+    result = agent_contracts.source_hunter_agent(
+        payload={"city": "Singapore", "categories": ["events", "food"]},
+        run_id="run-test-5",
+    )
+    assert result["status"] == "ok"
+    assert set(result.keys()) == {"status", "data", "meta"}
+    assert result["meta"]["agent"] == "SourceHunterAgent"
+    assert len(result["data"]["sources"]) == 2
+
+
+def test_ingestion_agent_returns_counts() -> None:
+    result = agent_contracts.ingestion_agent(
+        payload={
+            "raw_events": [
+                {"raw_title": "A"},
+                {"raw_title": ""},
+            ]
+        },
+        run_id="run-test-6",
+    )
+    assert result["status"] == "ok"
+    assert result["data"]["processed_count"] == 2
+    assert result["data"]["failed_count"] == 1
+
+
+def test_recommendation_agent_profile_required_error_is_retryable() -> None:
+    result = agent_contracts.recommendation_agent(
+        payload={"candidate_events": [{"event_id": "1", "category": "events"}]},
+        run_id="run-test-7",
+    )
+    assert result["status"] == "error"
+    assert result["error"]["code"] == "PROFILE_NOT_FOUND"
+    assert result["error"]["retryable"] is True
+
+
+def test_notification_composer_agent_shapes_message() -> None:
+    result = agent_contracts.notification_composer_agent(
+        payload={
+            "event": {"event_id": "evt_1", "title": "Jazz Night"},
+            "notify_reason": "high_relevance_time_sensitive",
+        },
+        run_id="run-test-8",
+    )
+    assert result["status"] == "ok"
+    assert result["data"]["deep_link"] == "aff://events/evt_1"
+    assert result["data"]["priority"] == "high"
+
+
+def test_preference_profiler_aggregates_history() -> None:
+    result = agent_contracts.preference_profiler_agent(
+        payload={
+            "explicit_preferences": {
+                "categories": ["events", "food", "nightlife"],
+                "budget_mode": "moderate",
+                "time_preferences": ["evening"],
+            },
+            "interaction_history": [
+                {"category": "food", "signal": "interested"},
+                {"category": "food", "signal": "interested"},
+                {"category": "nightlife", "signal": "not_for_me"},
+            ],
+        },
+        run_id="run-test-9",
+    )
+    assert result["status"] == "ok"
+    profile = result["data"]["profile"]
+    assert profile["preferred_categories"][0] == "food"
+    assert "nightlife" in profile["anti_preferences"]
+
+
 @pytest.fixture(autouse=True)
 def reset_state() -> None:
     main.reset_store()

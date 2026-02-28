@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import hashlib
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -34,6 +35,7 @@ from models import (
     PasswordLoginRequest,
     PreferenceProfile,
     PreferenceProfileInput,
+    RecommendationRecord,
     TestNotificationRequest,
     TestNotificationResponse,
     TimeWindow,
@@ -183,7 +185,7 @@ def get_feed(
     mode: FeedMode,
     user: UserRecord = Depends(get_current_user),
 ) -> FeedResponse:
-    del lat, lng, mode
+    del mode
 
     profile = ensure_preferences(user.id)
     now = now_sg(STORE)
@@ -217,6 +219,25 @@ def get_feed(
     coverage_warning = None
     if len(items) < 20:
         coverage_warning = "Limited candidate coverage for selected filters."
+
+    context_hash = hashlib.sha256(
+        f"{user.id}:{time_window.value}:{budget.value}:{lat}:{lng}".encode("utf-8")
+    ).hexdigest()[:16]
+    created_at = now_sg(STORE)
+    for index, item in enumerate(items, start=1):
+        STORE.recommendations.append(
+            RecommendationRecord(
+                id=str(uuid4()),
+                user_id=user.id,
+                event_id=str(item.event_id),
+                context_hash=context_hash,
+                rank_position=index,
+                relevance_score=item.relevance_score,
+                reasons=item.reasons,
+                notify_immediately=item.relevance_score >= 0.9,
+                created_at=created_at,
+            )
+        )
 
     return FeedResponse(
         items=items,

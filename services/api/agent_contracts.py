@@ -231,3 +231,176 @@ def deduplicate_event_agent(payload: dict[str, Any], run_id: str | None = None) 
         "requires_manual_review": requires_manual_review,
     }
     return ok_envelope(agent=agent, data=decision, run_id=run_id)
+
+
+def source_hunter_agent(payload: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
+    agent = "SourceHunterAgent"
+    city = payload.get("city")
+    categories = payload.get("categories")
+    if not isinstance(city, str) or not isinstance(categories, list):
+        return error_envelope(
+            agent=agent,
+            code="INVALID_INPUT_ENVELOPE",
+            message="city and categories are required",
+            retryable=False,
+            details={"required": ["city", "categories"]},
+            run_id=run_id,
+        )
+
+    sources = []
+    for category in categories:
+        slug = str(category).replace("_", "-")
+        sources.append(
+            {
+                "name": f"{city} {category} source",
+                "url": f"https://{slug}.example.sg/feed",
+                "source_type": "local_blog",
+                "access_method": "rss",
+                "update_frequency_estimate": "daily",
+                "reliability_score": 70,
+                "policy_risk_score": 20,
+            }
+        )
+
+    return ok_envelope(agent=agent, data={"sources": sources}, run_id=run_id)
+
+
+def ingestion_agent(payload: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
+    agent = "IngestionAgent"
+    raw_events = payload.get("raw_events")
+    if not isinstance(raw_events, list):
+        return error_envelope(
+            agent=agent,
+            code="INVALID_INPUT_ENVELOPE",
+            message="raw_events list is required",
+            retryable=False,
+            details={"required": ["raw_events"]},
+            run_id=run_id,
+        )
+
+    processed = len(raw_events)
+    parseable = sum(1 for event in raw_events if bool(event.get("raw_title")))
+    return ok_envelope(
+        agent=agent,
+        data={
+            "processed_count": processed,
+            "parseable_count": parseable,
+            "failed_count": processed - parseable,
+        },
+        run_id=run_id,
+    )
+
+
+def recommendation_agent(payload: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
+    agent = "RecommendationAgent"
+    candidate_events = payload.get("candidate_events")
+    profile = payload.get("profile")
+    if not isinstance(candidate_events, list):
+        return error_envelope(
+            agent=agent,
+            code="INVALID_INPUT_ENVELOPE",
+            message="candidate_events list is required",
+            retryable=False,
+            details={"required": ["candidate_events"]},
+            run_id=run_id,
+        )
+    if not isinstance(profile, dict):
+        return error_envelope(
+            agent=agent,
+            code="PROFILE_NOT_FOUND",
+            message="profile is required",
+            retryable=True,
+            details={},
+            run_id=run_id,
+        )
+
+    preferred_categories = set(profile.get("preferred_categories", []))
+    ranked = []
+    for event in candidate_events:
+        event_id = event.get("event_id")
+        category = event.get("category")
+        score = 0.6 + (0.3 if category in preferred_categories else 0.0)
+        ranked.append(
+            {
+                "event_id": event_id,
+                "relevance_score": round(min(score, 0.98), 3),
+                "personal_pitch": "Matched to your profile",
+                "reasons": [f"category:{category}"],
+                "notify_immediately": score > 0.85,
+                "notify_reason": "high_relevance" if score > 0.85 else "normal",
+            }
+        )
+    ranked.sort(key=lambda item: item["relevance_score"], reverse=True)
+    return ok_envelope(agent=agent, data={"ranked": ranked}, run_id=run_id)
+
+
+def notification_composer_agent(payload: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
+    agent = "NotificationComposerAgent"
+    event = payload.get("event")
+    reason = payload.get("notify_reason")
+    if not isinstance(event, dict) or not isinstance(reason, str):
+        return error_envelope(
+            agent=agent,
+            code="INVALID_INPUT_ENVELOPE",
+            message="event and notify_reason are required",
+            retryable=False,
+            details={"required": ["event", "notify_reason"]},
+            run_id=run_id,
+        )
+
+    event_id = event.get("event_id", "")
+    title = str(event.get("title", "AFF Alert"))[:100]
+    body = str(reason)[:200]
+    return ok_envelope(
+        agent=agent,
+        data={
+            "title": title,
+            "body": body,
+            "deep_link": f"aff://events/{event_id}",
+            "priority": "high",
+        },
+        run_id=run_id,
+    )
+
+
+def preference_profiler_agent(payload: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
+    agent = "PreferenceProfilerAgent"
+    explicit = payload.get("explicit_preferences")
+    history = payload.get("interaction_history", [])
+    if not isinstance(explicit, dict) or not isinstance(history, list):
+        return error_envelope(
+            agent=agent,
+            code="INVALID_INPUT_ENVELOPE",
+            message="explicit_preferences and interaction_history are required",
+            retryable=False,
+            details={"required": ["explicit_preferences", "interaction_history"]},
+            run_id=run_id,
+        )
+
+    categories = list(explicit.get("categories", []))
+    boosts: dict[str, int] = {}
+    penalties: dict[str, int] = {}
+    for item in history:
+        category = str(item.get("category", "other"))
+        signal = item.get("signal")
+        if signal == "interested":
+            boosts[category] = boosts.get(category, 0) + 1
+        if signal == "not_for_me":
+            penalties[category] = penalties.get(category, 0) + 1
+
+    ranked_categories = sorted(
+        categories,
+        key=lambda category: boosts.get(category, 0) - penalties.get(category, 0),
+        reverse=True,
+    )
+    profile = {
+        "preferred_categories": ranked_categories or categories,
+        "preferred_subcategories": [],
+        "price_sensitivity": explicit.get("budget_mode", "moderate"),
+        "preferred_distance_km": 8,
+        "active_days": "both",
+        "preferred_times": list(explicit.get("time_preferences", ["evening"])),
+        "taste_descriptors": ["adaptive profile"],
+        "anti_preferences": [cat for cat, value in penalties.items() if value > 0],
+    }
+    return ok_envelope(agent=agent, data={"profile": profile}, run_id=run_id)

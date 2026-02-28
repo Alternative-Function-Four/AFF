@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from datetime import timedelta
 from uuid import UUID
+from uuid import uuid4
 
 from logic import make_ingestion_metrics, now_sg
 from models import (
     EventOccurrence,
     EventRecord,
+    EventSourceLinkRecord,
     InMemoryStore,
     Price,
+    RawEventRecord,
     Source,
     SourceAccessMethod,
     SourceProvenance,
@@ -140,6 +143,41 @@ def create_seed_store() -> InMemoryStore:
             ],
         ),
     }
+
+    for event in store.events.values():
+        source = event.source_provenance[0]
+        raw_event_id = str(uuid4())
+        store.raw_events[raw_event_id] = RawEventRecord(
+            id=raw_event_id,
+            source_id=str(source.source_id),
+            external_event_id=None,
+            payload_ref=f"seed://{raw_event_id}",
+            raw_title=event.title,
+            raw_date_or_schedule=event.occurrences[0].datetime_start.isoformat(),
+            raw_location=event.venue_name,
+            raw_description=event.description,
+            raw_price=(
+                f"SGD {event.price.min}-{event.price.max}"
+                if event.price and event.price.min is not None and event.price.max is not None
+                else None
+            ),
+            raw_url=source.source_url,
+            raw_media_url=None,
+            captured_at=event.occurrences[0].datetime_start,
+        )
+        store.event_source_links.append(
+            EventSourceLinkRecord(
+                id=str(uuid4()),
+                event_id=event.event_id,
+                raw_event_id=raw_event_id,
+                source_id=str(source.source_id),
+                source_url=source.source_url,
+                external_event_id=None,
+                merge_confidence=0.9,
+                first_seen_at=event.occurrences[0].datetime_start,
+                last_seen_at=event.occurrences[0].datetime_start,
+            )
+        )
 
     return store
 
