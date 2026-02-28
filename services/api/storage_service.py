@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from constants import SG_TZ
-from database import AsyncSessionFactory, init_db_schema
+from database import AsyncSessionFactory, recreate_db_schema
 from entities import (
     Event,
     EventOccurrence,
@@ -80,7 +80,11 @@ def to_user_record(row: User) -> UserRecord:
 
 
 def to_session_record(row: Session) -> SessionRecord:
-    return SessionRecord(token=row.token, user_id=row.user_id, expires_at=row.expires_at)
+    return SessionRecord(
+        token=row.token,
+        user_id=row.user_id,
+        expires_at=_as_sg_datetime(row.expires_at),
+    )
 
 
 def _to_price(row: Event) -> Price | None:
@@ -1150,6 +1154,6 @@ async def ensure_seed_data(session: AsyncSession) -> dict[str, Any]:
 
 
 async def reset_store_snapshot() -> dict[str, Any]:
-    await init_db_schema()
+    await recreate_db_schema()
     async with AsyncSessionFactory() as db:
         return await seed_initial_data(db)
