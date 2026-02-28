@@ -6,12 +6,16 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, Query, status
 
 from agent_contracts import deduplicate_event_agent, normalize_event_agent
+from core import append_ingestion_log, now_sg
 from dependencies import APIError, get_admin_user
-from logic import append_ingestion_log, build_similar_events, now_sg
+from logic import build_similar_events
 from models import (
+    CandidateEventForDedup,
     EventOccurrence,
     EventRecord,
     EventSourceLinkRecord,
+    FlexibleObject,
+    IngestionJobRecord,
     IngestionRunRequest,
     IngestionRunResponse,
     Price,
@@ -188,8 +192,8 @@ def post_admin_ingestion_run(
             payload={"raw_event": raw_event, "city_context": "Singapore"},
             run_id=run_id,
         )
-        if normalized["status"] == "error":
-            STORE.ingestion_metrics["source_parse_failures_total"] += 1
+        if normalized.status == "error":
+            STORE.ingestion_metrics.source_parse_failures_total += 1
             append_ingestion_log(
                 STORE,
                 run_id=run_id,
@@ -197,15 +201,15 @@ def post_admin_ingestion_run(
                 message="Normalizer failed",
                 user_id=admin_user.id,
                 source_id=str(source.id),
-                payload=normalized["error"],
+                payload=FlexibleObject.model_validate(normalized.error.model_dump(mode="python")),
             )
             continue
 
-        normalized_event = normalized["data"]["normalized_event"]
+        normalized_event = normalized.data.model_dump(mode="python")["normalized_event"]
         confidence_score = float(normalized_event["confidence_score"])
         if confidence_score < 0.6:
-            STORE.ingestion_metrics["normalization_low_confidence_total"] += 1
-            STORE.ingestion_metrics["source_parse_failures_total"] += 1
+            STORE.ingestion_metrics.normalization_low_confidence_total += 1
+            STORE.ingestion_metrics.source_parse_failures_total += 1
             append_ingestion_log(
                 STORE,
                 run_id=run_id,
@@ -213,21 +217,27 @@ def post_admin_ingestion_run(
                 message="Low confidence normalization",
                 user_id=admin_user.id,
                 source_id=str(source.id),
-                payload={
-                    "confidence_score": confidence_score,
-                    "parsing_notes": normalized_event.get("parsing_notes"),
-                },
+                payload=FlexibleObject.model_validate(
+                    {
+                        "confidence_score": confidence_score,
+                        "parsing_notes": normalized_event.get("parsing_notes"),
+                    }
+                ),
             )
+            continue
 
         dedup = deduplicate_event_agent(
             payload={
-                "candidate_event": normalized_event,
-                "similar_events": build_similar_events(STORE, normalized_event),
+                "candidate_event": CandidateEventForDedup.model_validate(normalized_event),
+                "similar_events": build_similar_events(
+                    STORE,
+                    CandidateEventForDedup.model_validate(normalized_event),
+                ),
             },
             run_id=run_id,
         )
-        if dedup["status"] == "error":
-            STORE.ingestion_metrics["source_parse_failures_total"] += 1
+        if dedup.status == "error":
+            STORE.ingestion_metrics.source_parse_failures_total += 1
             append_ingestion_log(
                 STORE,
                 run_id=run_id,
@@ -235,14 +245,19 @@ def post_admin_ingestion_run(
                 message="Deduplication failed",
                 user_id=admin_user.id,
                 source_id=str(source.id),
-                payload=dedup["error"],
+                payload=FlexibleObject.model_validate(dedup.error.model_dump(mode="python")),
             )
             continue
 
-        decision = dedup["data"]
-        action = decision["merge_action"]
+        decision = dedup.data.model_dump(mode="json")
+        action = str(decision["merge_action"])
         merge_actions.append(action)
-        STORE.ingestion_metrics["dedup_merge_action_total"][action] += 1
+        if action == "skip":
+            STORE.ingestion_metrics.dedup_merge_action_total.skip += 1
+        elif action == "merge_sources":
+            STORE.ingestion_metrics.dedup_merge_action_total.merge_sources += 1
+        else:
+            STORE.ingestion_metrics.dedup_merge_action_total.create_new += 1
         append_ingestion_log(
             STORE,
             run_id=run_id,
@@ -250,7 +265,7 @@ def post_admin_ingestion_run(
             message="Deduplication decision computed",
             user_id=admin_user.id,
             source_id=str(source.id),
-            payload=decision,
+            payload=FlexibleObject.model_validate(decision),
         )
 
         if action == "create_new":
@@ -309,7 +324,7 @@ def post_admin_ingestion_run(
                 user_id=admin_user.id,
                 source_id=str(source.id),
                 event_id=event_id,
-                payload={"title": new_event.title},
+                payload=FlexibleObject.model_validate({"title": new_event.title}),
             )
         elif decision.get("duplicate_of_id"):
             STORE.event_source_links.append(
@@ -327,14 +342,14 @@ def post_admin_ingestion_run(
             )
 
     STORE.ingestion_jobs.append(
-        {
-            "job_id": str(job_id),
-            "source_ids": [str(source_id) for source_id in payload.source_ids],
-            "reason": payload.reason,
-            "queued_at": now_sg(STORE).isoformat(),
-            "run_id": run_id,
-            "created_events": created_events,
-            "merge_actions": merge_actions,
-        }
+        IngestionJobRecord(
+            job_id=str(job_id),
+            source_ids=[str(source_id) for source_id in payload.source_ids],
+            reason=payload.reason,
+            queued_at=now_sg(STORE).isoformat(),
+            run_id=run_id,
+            created_events=created_events,
+            merge_actions=merge_actions,
+        )
     )
     return IngestionRunResponse(job_id=job_id, queued_count=len(payload.source_ids))

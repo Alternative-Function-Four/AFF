@@ -1,73 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from constants import QUIET_HOUR_END, QUIET_HOUR_START, SG_TZ
+from constants import SG_TZ
 from models import (
     ActiveDays,
     BudgetMode,
+    CandidateEventForDedup,
     EventRecord,
     FeedbackSignal,
     InMemoryStore,
     InteractionRecord,
     PreferenceProfile,
     PreferredTime,
+    SimilarEventCandidate,
     TimeWindow,
 )
-
-
-def make_request_id() -> str:
-    return f"req_{uuid4().hex[:12]}"
-
-
-def as_sg_datetime(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=SG_TZ)
-    return value.astimezone(SG_TZ)
-
-
-def now_sg(store: InMemoryStore) -> datetime:
-    return as_sg_datetime(store.now_provider())
-
-
-def make_ingestion_metrics() -> dict[str, Any]:
-    return {
-        "normalization_low_confidence_total": 0,
-        "dedup_merge_action_total": {
-            "skip": 0,
-            "merge_sources": 0,
-            "create_new": 0,
-        },
-        "source_parse_failures_total": 0,
-    }
-
-
-def append_ingestion_log(
-    store: InMemoryStore,
-    *,
-    run_id: str,
-    level: str,
-    message: str,
-    payload: dict[str, Any],
-    user_id: str | None = None,
-    source_id: str | None = None,
-    event_id: str | None = None,
-) -> None:
-    store.ingestion_logs.append(
-        {
-            "timestamp": now_sg(store).isoformat(),
-            "level": level,
-            "service": "ingestion",
-            "run_id": run_id,
-            "user_id": user_id,
-            "source_id": source_id,
-            "event_id": event_id,
-            "message": message,
-            "payload": payload,
-        }
-    )
 
 
 def default_preference_profile(user_id: str, now: datetime) -> PreferenceProfile:
@@ -149,11 +98,6 @@ def build_feed_score(
     return score, reasons
 
 
-def is_quiet_hours(moment: datetime) -> bool:
-    hour = moment.hour
-    return hour >= QUIET_HOUR_START or hour < QUIET_HOUR_END
-
-
 def notifications_count_today(store: InMemoryStore, user_id: str, now: datetime) -> int:
     total = 0
     for uid, log in store.notification_logs:
@@ -166,10 +110,13 @@ def notifications_count_today(store: InMemoryStore, user_id: str, now: datetime)
     return total
 
 
-def build_similar_events(store: InMemoryStore, candidate_event: dict[str, Any]) -> list[dict[str, Any]]:
-    title = str(candidate_event.get("title") or "").lower()
-    candidate_start = candidate_event.get("datetime_start")
-    similar_events: list[dict[str, Any]] = []
+def build_similar_events(
+    store: InMemoryStore,
+    candidate_event: CandidateEventForDedup,
+) -> list[SimilarEventCandidate]:
+    title = str(candidate_event.title or "").lower()
+    candidate_start = candidate_event.datetime_start
+    similar_events: list[SimilarEventCandidate] = []
 
     for event in store.events.values():
         similarity = 0.35
@@ -191,14 +138,14 @@ def build_similar_events(store: InMemoryStore, candidate_event: dict[str, Any]) 
             pass
 
         similar_events.append(
-            {
-                "event_id": event.event_id,
-                "title": event.title,
-                "datetime_start": event.occurrences[0].datetime_start.isoformat(),
-                "venue_name": event.venue_name,
-                "similarity_score": round(min(similarity, 0.99), 3),
-            }
+            SimilarEventCandidate(
+                event_id=event.event_id,
+                title=event.title,
+                datetime_start=event.occurrences[0].datetime_start.isoformat(),
+                venue_name=event.venue_name,
+                similarity_score=round(min(similarity, 0.99), 3),
+            )
         )
 
-    similar_events.sort(key=lambda item: item["similarity_score"], reverse=True)
+    similar_events.sort(key=lambda item: item.similarity_score, reverse=True)
     return similar_events[:5]

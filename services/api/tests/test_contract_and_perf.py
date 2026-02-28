@@ -325,3 +325,86 @@ def test_ingestion_50_sources_completes_within_target(client: TestClient) -> Non
 
     assert run.status_code == 202
     assert elapsed_seconds <= 15 * 60
+
+
+def test_password_login_reuses_existing_user_and_session_is_issued(client: TestClient) -> None:
+    payload = {"email": "Tester@example.com", "password": "ignored"}
+
+    first = client.post("/v1/auth/login", json=payload)
+    assert first.status_code == 200
+    first_body = first.json()
+    assert first_body["user"]["display_name"] == "tester"
+    assert first_body["token_type"] == "bearer"
+
+    second = client.post("/v1/auth/login", json=payload)
+    assert second.status_code == 200
+    second_body = second.json()
+
+    assert first_body["user"]["id"] == second_body["user"]["id"]
+    assert first_body["access_token"] != second_body["access_token"]
+
+
+def test_interactions_endpoint_persists_signal_for_existing_event(client: TestClient) -> None:
+    token = _login(client)
+    headers = _headers(token)
+    event_id = next(iter(main.store.events.keys()))
+
+    response = client.post(
+        "/v1/interactions",
+        headers=headers,
+        json={
+            "event_id": event_id,
+            "signal": "opened",
+            "context": {"surface": "feed_card"},
+        },
+    )
+
+    assert response.status_code == 201
+    saved = main.store.interactions[-1]
+    assert saved.event_id == event_id
+    assert saved.signal == "opened"
+    assert saved.context == {"surface": "feed_card"}
+
+
+def test_get_event_returns_details_for_known_id(client: TestClient) -> None:
+    token = _login(client)
+    event_id = next(iter(main.store.events.keys()))
+
+    response = client.get(f"/v1/events/{event_id}", headers=_headers(token))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["event_id"] == event_id
+    assert body["title"]
+    assert body["occurrences"]
+    assert body["source_provenance"]
+
+
+def test_get_admin_sources_supports_status_filter(client: TestClient) -> None:
+    admin_token = _login(client, admin=True)
+    headers = _headers(admin_token)
+
+    created = client.post(
+        "/v1/admin/sources",
+        headers=headers,
+        json={
+            "name": "Pending Source",
+            "url": "https://pending.example.sg/feed",
+            "source_type": "events",
+            "access_method": "rss",
+            "terms_url": "https://pending.example.sg/terms",
+        },
+    )
+    assert created.status_code == 201
+
+    filtered = client.get("/v1/admin/sources", headers=headers, params={"status": "pending"})
+    assert filtered.status_code == 200
+    pending_items = filtered.json()["items"]
+    assert pending_items
+    assert all(item["status"] == "pending" for item in pending_items)
+
+
+def test_request_id_header_is_set_for_successful_response(client: TestClient) -> None:
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.headers.get("X-Request-ID")
