@@ -6,7 +6,7 @@ PORT ?= 8000
 .PHONY: run test lint
 
 run:
-	cd $(API_DIR) && $(UV) run uvicorn main:app --reload --host $(HOST) --port $(PORT)
+	docker compose up --build
 
 test:
 	cd $(API_DIR) && $(UV) run pytest -q
