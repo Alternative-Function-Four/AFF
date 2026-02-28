@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+import uuid
+from typing import Any
 
 from fastapi import Depends, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from core import make_request_id, now_sg
-from models import ErrorEnvelope, FlexibleObject, UserRecord
+from logic import now_sg
+from models import ErrorEnvelope, UserRecord
 from state import STORE
+from storage_service import get_session, get_user_by_id
 
 
 class APIError(Exception):
@@ -19,18 +22,13 @@ class APIError(Exception):
         status_code: int,
         code: str,
         message: str,
-        details: FlexibleObject | dict[str, object] | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
-        if details is None:
-            self.details = FlexibleObject()
-        elif isinstance(details, FlexibleObject):
-            self.details = details
-        else:
-            self.details = FlexibleObject.model_validate(details)
+        self.details = details or {}
 
 
 bearer = HTTPBearer(auto_error=False)
@@ -40,7 +38,7 @@ def request_id_for(request: Request) -> str:
     value = getattr(request.state, "request_id", None)
     if value:
         return str(value)
-    fallback = make_request_id()
+    fallback = f"req_{uuid.uuid4().hex[:12]}"
     request.state.request_id = fallback
     return fallback
 
@@ -50,13 +48,12 @@ def error_response(
     status_code: int,
     code: str,
     message: str,
-    details: FlexibleObject | dict[str, Any],
+    details: dict[str, Any],
 ) -> JSONResponse:
-    details_model = details if isinstance(details, FlexibleObject) else FlexibleObject.model_validate(details)
     payload = ErrorEnvelope(
         code=code,
         message=message,
-        details=details_model,
+        details=details,
         request_id=request_id_for(request),
     )
     return JSONResponse(status_code=status_code, content=payload.model_dump(mode="json"))
@@ -64,11 +61,8 @@ def error_response(
 
 def register_handlers(app: Any) -> None:
     @app.middleware("http")
-    async def request_id_middleware(
-        request: Request,
-        call_next: Callable[..., Any],
-    ) -> JSONResponse:
-        request.state.request_id = make_request_id()
+    async def request_id_middleware(request: Request, call_next):
+        request.state.request_id = f"req_{uuid.uuid4().hex[:12]}"
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         return response
@@ -78,7 +72,10 @@ def register_handlers(app: Any) -> None:
         return error_response(request, exc.status_code, exc.code, exc.message, exc.details)
 
     @app.exception_handler(RequestValidationError)
-    async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    async def validation_error_handler(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
         return error_response(
             request=request,
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -88,7 +85,10 @@ def register_handlers(app: Any) -> None:
         )
 
     @app.exception_handler(StarletteHTTPException)
-    async def starlette_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    async def starlette_error_handler(
+        request: Request,
+        exc: StarletteHTTPException,
+    ) -> JSONResponse:
         code_map = {
             400: "INVALID_REQUEST",
             401: "UNAUTHORIZED",
@@ -121,8 +121,16 @@ def register_handlers(app: Any) -> None:
         )
 
 
-def get_current_user(
+async def get_db_session() -> AsyncSession:
+    from database import get_db_session as get_db_session_ctx
+
+    async with get_db_session_ctx() as session:
+        yield session
+
+
+async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    db: AsyncSession = Depends(get_db_session),
 ) -> UserRecord:
     if credentials is None:
         raise APIError(
@@ -132,7 +140,7 @@ def get_current_user(
             details={"auth": "bearer"},
         )
 
-    session = STORE.sessions.get(credentials.credentials)
+    session = await get_session(db, credentials.credentials)
     if session is None or session.expires_at < now_sg(STORE):
         raise APIError(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -141,7 +149,7 @@ def get_current_user(
             details={"token": "expired_or_unknown"},
         )
 
-    user = STORE.users.get(session.user_id)
+    user = await get_user_by_id(db, session.user_id)
     if user is None:
         raise APIError(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -149,10 +157,11 @@ def get_current_user(
             message="Invalid session user",
             details={"user_id": session.user_id},
         )
+
     return user
 
 
-def get_admin_user(user: UserRecord = Depends(get_current_user)) -> UserRecord:
+async def get_admin_user(user: UserRecord = Depends(get_current_user)) -> UserRecord:
     if user.role != "admin":
         raise APIError(
             status_code=status.HTTP_403_FORBIDDEN,
