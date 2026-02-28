@@ -1,6 +1,7 @@
 """Initial schema."""
 
 from alembic import op
+from pgvector.sqlalchemy import Vector
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
@@ -11,6 +12,8 @@ depends_on = None
 
 
 def upgrade() -> None:
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
     op.create_table(
         "users",
         sa.Column("id", sa.String(length=36), primary_key=True),
@@ -88,17 +91,37 @@ def upgrade() -> None:
     op.create_table(
         "events",
         sa.Column("id", sa.String(length=36), primary_key=True),
+        sa.Column("source_id", sa.String(length=36), nullable=False),
+        sa.Column("source_event_id", sa.String(length=255), nullable=True),
         sa.Column("title", sa.String(length=255), nullable=False),
+        sa.Column("event_url", sa.String(length=512), nullable=False),
+        sa.Column("image_url", sa.String(length=512), nullable=True),
         sa.Column("category", sa.String(length=128), nullable=False),
         sa.Column("subcategory", sa.String(length=128), nullable=True),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("venue_name", sa.String(length=255), nullable=True),
         sa.Column("venue_address", sa.String(length=255), nullable=True),
+        sa.Column("indoor_outdoor", sa.String(length=16), nullable=False),
+        sa.Column("latitude", sa.Float(), nullable=True),
+        sa.Column("longitude", sa.Float(), nullable=True),
+        sa.Column("start_datetime", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("end_datetime", sa.DateTime(timezone=True), nullable=True),
         sa.Column("price_min", sa.Float(), nullable=True),
         sa.Column("price_max", sa.Float(), nullable=True),
-        sa.Column("currency", sa.String(length=8), nullable=True),
+        sa.Column("currency", sa.String(length=8), nullable=False, server_default="SGD"),
+        sa.Column("embedding", Vector(256), nullable=True),
+        sa.Column("content_hash", sa.String(length=64), nullable=False),
+        sa.Column("status", sa.String(length=16), nullable=False, server_default="active"),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(["source_id"], ["sources.id"], ondelete="CASCADE"),
+        sa.UniqueConstraint("source_id", "source_event_id", name="uq_events_source_source_event_id"),
+        sa.UniqueConstraint("content_hash", name="uq_events_content_hash"),
     )
+    op.create_index("ix_events_start_datetime", "events", ["start_datetime"])
+    op.create_index("ix_events_status_start_datetime", "events", ["status", "start_datetime"])
 
     op.create_table(
         "event_occurrences",

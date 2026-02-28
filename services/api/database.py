@@ -5,6 +5,7 @@ from typing import AsyncGenerator
 
 from core.settings import settings
 from entities import Base
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 
@@ -26,6 +27,8 @@ AsyncSessionFactory = async_sessionmaker(
 
 async def init_db_schema() -> None:
     async with engine.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            await connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await connection.run_sync(Base.metadata.create_all)
 
 

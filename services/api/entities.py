@@ -10,12 +10,16 @@ from sqlalchemy import (
     Float,
     ForeignKeyConstraint,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm import DeclarativeBase
+
+from pgvector.sqlalchemy import Vector
 
 
 class Base(DeclarativeBase):
@@ -123,17 +127,46 @@ class SourceTopicLink(Base):
 
 class Event(Base):
     __tablename__ = "events"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_id",
+            "source_event_id",
+            name="uq_events_source_source_event_id",
+        ),
+        UniqueConstraint("content_hash", name="uq_events_content_hash"),
+        Index("ix_events_start_datetime", "start_datetime"),
+        Index("ix_events_status_start_datetime", "status", "start_datetime"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("sources.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_event_id: Mapped[str | None] = mapped_column(String(255))
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    image_url: Mapped[str | None] = mapped_column(String(512))
     category: Mapped[str] = mapped_column(String(128), nullable=False)
     subcategory: Mapped[str | None] = mapped_column(String(128))
     description: Mapped[str | None] = mapped_column(Text())
     venue_name: Mapped[str | None] = mapped_column(String(255))
     venue_address: Mapped[str | None] = mapped_column(String(255))
+    indoor_outdoor: Mapped[str] = mapped_column(String(16), nullable=False)
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+    start_datetime: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_datetime: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     price_min: Mapped[float | None] = mapped_column(Float)
     price_max: Mapped[float | None] = mapped_column(Float)
-    currency: Mapped[str | None] = mapped_column(String(8))
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="SGD")
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(256))  # type: ignore[call-overload]
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     occurrences: Mapped[list["EventOccurrence"]] = relationship(

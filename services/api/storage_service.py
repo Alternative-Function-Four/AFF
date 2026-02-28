@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from datetime import timedelta
 from typing import Any
@@ -69,6 +70,30 @@ def _enum_value(value: str | SourceStatus | SourceAccessMethod) -> str:
     return str(value)
 
 
+def _seed_content_hash(
+    *,
+    title: str,
+    description: str | None,
+    category: str,
+    venue_name: str | None,
+    venue_address: str | None,
+    start_datetime: datetime,
+    end_datetime: datetime | None,
+) -> str:
+    payload = "|".join(
+        [
+            title.strip().lower(),
+            (description or "").strip().lower(),
+            category.strip().lower(),
+            (venue_name or "").strip().lower(),
+            (venue_address or "").strip().lower(),
+            start_datetime.astimezone(SG_TZ).isoformat(),
+            end_datetime.astimezone(SG_TZ).isoformat() if end_datetime else "",
+        ]
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def to_user_record(row: User) -> UserRecord:
     return UserRecord(
         id=row.id,
@@ -94,14 +119,35 @@ def _to_price(row: Event) -> Price | None:
 
 
 def to_event_record(row: Event) -> EventRecord:
+    occurrence_start = row.start_datetime
+    occurrence_end = row.end_datetime
+    if row.occurrences:
+        occurrence_start = row.occurrences[0].datetime_start
+        occurrence_end = row.occurrences[0].datetime_end
+
     return EventRecord(
         event_id=row.id,
+        source_id=row.source_id,
+        source_event_id=row.source_event_id,
         title=row.title,
         category=row.category,
         subcategory=row.subcategory,
         description=row.description,
         venue_name=row.venue_name,
         venue_address=row.venue_address,
+        indoor_outdoor=row.indoor_outdoor,
+        start_datetime=row.start_datetime,
+        end_datetime=row.end_datetime,
+        latitude=row.latitude,
+        longitude=row.longitude,
+        event_url=row.event_url,
+        image_url=row.image_url,
+        embedding=list(row.embedding) if row.embedding else None,
+        content_hash=row.content_hash,
+        status=row.status,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        last_seen_at=row.last_seen_at,
         occurrences=[
             EventOccurrenceModel(
                 datetime_start=item.datetime_start,
@@ -109,6 +155,13 @@ def to_event_record(row: Event) -> EventRecord:
                 timezone=item.timezone,
             )
             for item in row.occurrences
+        ]
+        or [
+            EventOccurrenceModel(
+                datetime_start=occurrence_start,
+                datetime_end=occurrence_end,
+                timezone="UTC",
+            )
         ],
         price=_to_price(row),
         source_provenance=[
@@ -728,17 +781,41 @@ async def create_raw_event(session_db: AsyncSession, row: RawEventRecord) -> Raw
 
 
 async def create_event(session_db: AsyncSession, row: EventRecord) -> EventRecord:
+    start_at = row.start_datetime or row.occurrences[0].datetime_start
+    end_at = row.end_datetime or row.occurrences[0].datetime_end
+    source_id = row.source_id or (
+        str(row.source_provenance[0].source_id) if row.source_provenance else ""
+    )
+    if not source_id:
+        raise ValueError("EventRecord.source_id is required to create an event")
+    now = _now_sg()
     payload = Event(
         id=row.event_id,
+        source_id=source_id,
+        source_event_id=row.source_event_id,
         title=row.title,
+        event_url=row.event_url
+        or (row.source_provenance[0].source_url if row.source_provenance else ""),
+        image_url=row.image_url,
         category=row.category,
         subcategory=row.subcategory,
         description=row.description,
         venue_name=row.venue_name,
         venue_address=row.venue_address,
+        indoor_outdoor=row.indoor_outdoor,
+        latitude=row.latitude,
+        longitude=row.longitude,
+        start_datetime=start_at,
+        end_datetime=end_at,
         price_min=row.price.min if row.price else None,
         price_max=row.price.max if row.price else None,
-        currency=row.price.currency if row.price else None,
+        currency=row.price.currency if row.price and row.price.currency else "SGD",
+        embedding=row.embedding,
+        content_hash=row.content_hash or row.event_id,
+        status=row.status,
+        created_at=row.created_at or now,
+        updated_at=row.updated_at or now,
+        last_seen_at=row.last_seen_at or now,
         deleted_at=row.deleted_at,
     )
 
@@ -1013,67 +1090,143 @@ async def seed_initial_data(session: AsyncSession) -> dict[str, Any]:
         ),
     ])
 
+    event_a_start = current + timedelta(days=1, hours=2)
+    event_a_end = current + timedelta(days=1, hours=5)
+    event_b_start = current + timedelta(days=1, hours=4)
+    event_b_end = current + timedelta(days=1, hours=7)
+    event_c_start = current + timedelta(days=2, hours=3)
+    event_c_end = current + timedelta(days=2, hours=6)
+
     event_a = Event(
         id="aaaaaaaa-1111-4111-8111-111111111111",
+        source_id=source_a.id,
+        source_event_id="seed-rooftop-jazz",
         title="Rooftop Jazz Session",
+        event_url=str(source_a.url),
+        image_url=None,
         category="events",
         subcategory="indie_music",
         description="Sunset live jazz with city skyline.",
         venue_name="Esplanade",
         venue_address="1 Esplanade Dr",
+        indoor_outdoor="indoor",
+        latitude=1.2897,
+        longitude=103.855,
+        start_datetime=event_a_start,
+        end_datetime=event_a_end,
         price_min=20,
         price_max=40,
         currency="SGD",
+        embedding=None,
+        content_hash=_seed_content_hash(
+            title="Rooftop Jazz Session",
+            description="Sunset live jazz with city skyline.",
+            category="events",
+            venue_name="Esplanade",
+            venue_address="1 Esplanade Dr",
+            start_datetime=event_a_start,
+            end_datetime=event_a_end,
+        ),
+        status="active",
+        created_at=current,
+        updated_at=current,
+        last_seen_at=current,
         deleted_at=None,
     )
     event_b = Event(
         id="bbbbbbbb-2222-4222-8222-222222222222",
+        source_id=source_b.id,
+        source_event_id="seed-hawker-crawl",
         title="Late Night Hawker Crawl",
+        event_url=str(source_b.url),
+        image_url=None,
         category="food",
         subcategory="hawker",
         description="Guided food tour across two hawker centers.",
         venue_name="Maxwell Food Centre",
         venue_address="1 Kadayanallur St",
+        indoor_outdoor="outdoor",
+        latitude=1.2801,
+        longitude=103.8448,
+        start_datetime=event_b_start,
+        end_datetime=event_b_end,
         price_min=15,
         price_max=25,
         currency="SGD",
+        embedding=None,
+        content_hash=_seed_content_hash(
+            title="Late Night Hawker Crawl",
+            description="Guided food tour across two hawker centers.",
+            category="food",
+            venue_name="Maxwell Food Centre",
+            venue_address="1 Kadayanallur St",
+            start_datetime=event_b_start,
+            end_datetime=event_b_end,
+        ),
+        status="active",
+        created_at=current,
+        updated_at=current,
+        last_seen_at=current,
         deleted_at=None,
     )
     event_c = Event(
         id="cccccccc-3333-4333-8333-333333333333",
+        source_id=source_c.id,
+        source_event_id="seed-comedy-openmic",
         title="Underground Comedy Open Mic",
+        event_url=str(source_c.url),
+        image_url=None,
         category="nightlife",
         subcategory="comedy",
         description="Indie stand-up showcase.",
         venue_name="The Projector",
         venue_address="6001 Beach Rd",
+        indoor_outdoor="indoor",
+        latitude=1.302,
+        longitude=103.8647,
+        start_datetime=event_c_start,
+        end_datetime=event_c_end,
         price_min=18,
         price_max=35,
         currency="SGD",
+        embedding=None,
+        content_hash=_seed_content_hash(
+            title="Underground Comedy Open Mic",
+            description="Indie stand-up showcase.",
+            category="nightlife",
+            venue_name="The Projector",
+            venue_address="6001 Beach Rd",
+            start_datetime=event_c_start,
+            end_datetime=event_c_end,
+        ),
+        status="active",
+        created_at=current,
+        updated_at=current,
+        last_seen_at=current,
         deleted_at=None,
     )
 
     event_a.occurrences = [
         EventOccurrence(
             event_id=event_a.id,
-            datetime_start=current + timedelta(days=1, hours=2),
-            datetime_end=current + timedelta(days=1, hours=5),
+            datetime_start=event_a_start,
+            datetime_end=event_a_end,
             timezone="Asia/Singapore",
         )
     ]
     event_b.occurrences = [
         EventOccurrence(
             event_id=event_b.id,
-            datetime_start=current + timedelta(days=1, hours=4),
-            datetime_end=current + timedelta(days=1, hours=7),
+            datetime_start=event_b_start,
+            datetime_end=event_b_end,
             timezone="Asia/Singapore",
         )
     ]
     event_c.occurrences = [
         EventOccurrence(
             event_id=event_c.id,
-            datetime_start=current + timedelta(days=2, hours=3),
-            datetime_end=current + timedelta(days=2, hours=6),
+            datetime_start=event_c_start,
+            datetime_end=event_c_end,
             timezone="Asia/Singapore",
         )
     ]

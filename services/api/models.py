@@ -438,9 +438,24 @@ class EventRecord:
     description: str | None
     venue_name: str | None
     venue_address: str | None
+    indoor_outdoor: str
     occurrences: list[EventOccurrence]
     price: Price | None
     source_provenance: list[SourceProvenance]
+    source_id: str | None = None
+    source_event_id: str | None = None
+    start_datetime: datetime | None = None
+    end_datetime: datetime | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    event_url: str | None = None
+    image_url: str | None = None
+    embedding: list[float] | None = None
+    content_hash: str | None = None
+    status: str = "active"
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    last_seen_at: datetime | None = None
     deleted_at: datetime | None = None
 
 
