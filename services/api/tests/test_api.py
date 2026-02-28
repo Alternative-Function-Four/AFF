@@ -1,16 +1,10 @@
 from datetime import datetime
-from pathlib import Path
-import sys
 from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
 
-API_DIR = Path(__file__).resolve().parents[1]
-if str(API_DIR) not in sys.path:
-    sys.path.insert(0, str(API_DIR))
-
-import main  # noqa: E402
+import main
 
 SG_TZ = ZoneInfo("Asia/Singapore")
 
@@ -44,6 +38,13 @@ def test_health_endpoint(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_error_envelope_shape_for_unauthorized_request(client: TestClient) -> None:
+    response = client.get("/v1/preferences")
+    assert response.status_code == 401
+    body = response.json()
+    assert set(body.keys()) == {"code", "message", "details", "request_id"}
+
+
 def test_preferences_round_trip(client: TestClient) -> None:
     token = login_demo_user(client)
 
@@ -69,6 +70,39 @@ def test_preferences_round_trip(client: TestClient) -> None:
         assert body[key] == value
     assert "user_id" in body
     assert "updated_at" in body
+
+
+def test_new_user_onboarding_to_personalized_feed(client: TestClient) -> None:
+    token = login_demo_user(client)
+    headers = auth_headers(token)
+    response = client.put(
+        "/v1/preferences",
+        headers=headers,
+        json={
+            "preferred_categories": ["events", "nightlife"],
+            "preferred_subcategories": ["indie_music"],
+            "budget_mode": "moderate",
+            "preferred_distance_km": 8,
+            "active_days": "both",
+            "preferred_times": ["evening"],
+            "anti_preferences": ["large_crowds"],
+        },
+    )
+    assert response.status_code == 200
+
+    feed = client.get(
+        "/v1/feed",
+        params={
+            "lat": 1.29,
+            "lng": 103.85,
+            "time_window": "next_7_days",
+            "budget": "moderate",
+            "mode": "solo",
+        },
+        headers=headers,
+    )
+    assert feed.status_code == 200
+    assert feed.json()["items"]
 
 
 def test_feedback_changes_feed_ordering(client: TestClient) -> None:
@@ -108,6 +142,113 @@ def test_feedback_changes_feed_ordering(client: TestClient) -> None:
     assert second_items[0]["event_id"] != target_event_id
 
 
+def test_positive_feedback_increases_candidate_score(client: TestClient) -> None:
+    token = login_demo_user(client)
+    headers = auth_headers(token)
+    params = {
+        "lat": 1.29,
+        "lng": 103.85,
+        "time_window": "next_7_days",
+        "budget": "any",
+        "mode": "solo",
+    }
+    first_feed = client.get("/v1/feed", params=params, headers=headers)
+    assert first_feed.status_code == 200
+    first_items = first_feed.json()["items"]
+    target = first_items[-1]
+
+    feedback = {
+        "signal": "interested",
+        "context": {"surface": "feed"},
+    }
+    response = client.post(
+        f"/v1/events/{target['event_id']}/feedback",
+        json=feedback,
+        headers=headers,
+    )
+    assert response.status_code == 201
+
+    second_feed = client.get("/v1/feed", params=params, headers=headers)
+    assert second_feed.status_code == 200
+    second_items = second_feed.json()["items"]
+    updated = next(item for item in second_items if item["event_id"] == target["event_id"])
+    assert updated["relevance_score"] > target["relevance_score"]
+
+
+def test_feed_items_include_reasons_and_provenance(client: TestClient) -> None:
+    token = login_demo_user(client)
+    response = client.get(
+        "/v1/feed",
+        params={
+            "lat": 1.29,
+            "lng": 103.85,
+            "time_window": "next_7_days",
+            "budget": "moderate",
+            "mode": "solo",
+        },
+        headers=auth_headers(token),
+    )
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert items
+    first = items[0]
+    assert first["reasons"]
+    assert first["source_provenance"]
+
+
+def test_ingestion_pipeline_reaches_feed(client: TestClient) -> None:
+    admin_token = login_demo_user(client, persona_seed="admin")
+    admin_headers = auth_headers(admin_token)
+    create = client.post(
+        "/v1/admin/sources",
+        headers=admin_headers,
+        json={
+            "name": "Rare Astronomy Meetup",
+            "url": "https://astro.example.sg/events",
+            "source_type": "community",
+            "access_method": "api",
+            "terms_url": "https://astro.example.sg/terms",
+        },
+    )
+    assert create.status_code == 201
+    source_id = create.json()["id"]
+
+    approve = client.post(
+        f"/v1/admin/sources/{source_id}/approve",
+        headers=admin_headers,
+        json={
+            "decision": "approved",
+            "policy_risk_score": 22,
+            "quality_score": 77,
+            "notes": "Approved for ingestion",
+        },
+    )
+    assert approve.status_code == 200
+
+    run = client.post(
+        "/v1/admin/ingestion/run",
+        headers=admin_headers,
+        json={"source_ids": [source_id], "reason": "scheduled_sync"},
+    )
+    assert run.status_code == 202
+
+    user_token = login_demo_user(client)
+    feed = client.get(
+        "/v1/feed",
+        params={
+            "lat": 1.29,
+            "lng": 103.85,
+            "time_window": "next_7_days",
+            "budget": "any",
+            "mode": "solo",
+        },
+        headers=auth_headers(user_token),
+    )
+    assert feed.status_code == 200
+    titles = [item["title"] for item in feed.json()["items"]]
+    assert "Rare Astronomy Meetup Featured Event" in titles
+
+
 def test_ingestion_rejects_non_approved_sources(client: TestClient) -> None:
     admin_token = login_demo_user(client, persona_seed="admin")
     headers = auth_headers(admin_token)
@@ -142,6 +283,24 @@ def test_ingestion_rejects_non_approved_sources(client: TestClient) -> None:
     queued = client.post("/v1/admin/ingestion/run", json=run_payload, headers=headers)
     assert queued.status_code == 202
     assert queued.json()["queued_count"] == 1
+
+
+def test_source_url_unique_constraint_enforced(client: TestClient) -> None:
+    admin_token = login_demo_user(client, persona_seed="admin")
+    headers = auth_headers(admin_token)
+    payload = {
+        "name": "Unique Source",
+        "url": "https://unique.example.sg/feed",
+        "source_type": "events",
+        "access_method": "rss",
+        "terms_url": "https://unique.example.sg/terms",
+    }
+
+    first = client.post("/v1/admin/sources", json=payload, headers=headers)
+    second = client.post("/v1/admin/sources", json=payload, headers=headers)
+    assert first.status_code == 201
+    assert second.status_code == 409
+    assert second.json()["code"] == "SOURCE_URL_CONFLICT"
 
 
 def test_notification_limits_and_quiet_hours(client: TestClient) -> None:

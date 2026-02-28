@@ -14,6 +14,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from agent_contracts import deduplicate_event_agent, normalize_event_agent
+
 SG_TZ = ZoneInfo("Asia/Singapore")
 TOKEN_TTL_HOURS = 8
 MAX_NOTIFICATIONS_PER_DAY = 2
@@ -332,6 +334,8 @@ class InMemoryStore:
     sources: dict[str, Source] = field(default_factory=dict)
     notification_logs: list[tuple[str, NotificationLog]] = field(default_factory=list)
     ingestion_jobs: list[dict[str, Any]] = field(default_factory=list)
+    ingestion_metrics: dict[str, Any] = field(default_factory=dict)
+    ingestion_logs: list[dict[str, Any]] = field(default_factory=list)
     now_provider: Callable[[], datetime] = lambda: datetime.now(SG_TZ)
 
 
@@ -362,6 +366,43 @@ def as_sg_datetime(value: datetime) -> datetime:
 
 def now_sg(store: InMemoryStore) -> datetime:
     return as_sg_datetime(store.now_provider())
+
+
+def make_ingestion_metrics() -> dict[str, Any]:
+    return {
+        "normalization_low_confidence_total": 0,
+        "dedup_merge_action_total": {
+            "skip": 0,
+            "merge_sources": 0,
+            "create_new": 0,
+        },
+        "source_parse_failures_total": 0,
+    }
+
+
+def append_ingestion_log(
+    *,
+    run_id: str,
+    level: str,
+    message: str,
+    payload: dict[str, Any],
+    user_id: str | None = None,
+    source_id: str | None = None,
+    event_id: str | None = None,
+) -> None:
+    store.ingestion_logs.append(
+        {
+            "timestamp": now_sg(store).isoformat(),
+            "level": level,
+            "service": "ingestion",
+            "run_id": run_id,
+            "user_id": user_id,
+            "source_id": source_id,
+            "event_id": event_id,
+            "message": message,
+            "payload": payload,
+        }
+    )
 
 
 def default_preference_profile(user_id: str, now: datetime) -> PreferenceProfile:
@@ -463,6 +504,7 @@ def notifications_count_today(store: InMemoryStore, user_id: str, now: datetime)
 def create_seed_store() -> InMemoryStore:
     store = InMemoryStore()
     current = now_sg(store).replace(minute=0, second=0, microsecond=0)
+    store.ingestion_metrics = make_ingestion_metrics()
 
     source_a = Source(
         id=UUID("11111111-1111-1111-1111-111111111111"),
@@ -620,6 +662,44 @@ def ensure_preferences(user_id: str) -> PreferenceProfile:
     profile = default_preference_profile(user_id=user_id, now=now_sg(store))
     store.preferences[user_id] = profile
     return profile
+
+
+def build_similar_events(candidate_event: dict[str, Any]) -> list[dict[str, Any]]:
+    title = str(candidate_event.get("title") or "").lower()
+    candidate_start = candidate_event.get("datetime_start")
+    similar_events: list[dict[str, Any]] = []
+
+    for event in store.events.values():
+        similarity = 0.35
+        event_title = event.title.lower()
+        if title and any(token in event_title for token in title.split()):
+            similarity += 0.35
+        if title and event_title in title:
+            similarity += 0.25
+
+        try:
+            start_a = datetime.fromisoformat(str(candidate_start)).astimezone(SG_TZ)
+            start_b = event.occurrences[0].datetime_start.astimezone(SG_TZ)
+            hours_delta = abs((start_a - start_b).total_seconds()) / 3600
+            if hours_delta <= 2:
+                similarity += 0.2
+            elif hours_delta <= 12:
+                similarity += 0.1
+        except ValueError:
+            pass
+
+        similar_events.append(
+            {
+                "event_id": event.event_id,
+                "title": event.title,
+                "datetime_start": event.occurrences[0].datetime_start.isoformat(),
+                "venue_name": event.venue_name,
+                "similarity_score": round(min(similarity, 0.99), 3),
+            }
+        )
+
+    similar_events.sort(key=lambda item: item["similarity_score"], reverse=True)
+    return similar_events[:5]
 
 
 app = FastAPI(title="AFF API", version="1.0.0")
@@ -1110,8 +1190,7 @@ def post_admin_ingestion_run(
     payload: IngestionRunRequest,
     admin_user: UserRecord = Depends(get_admin_user),
 ) -> IngestionRunResponse:
-    del admin_user
-
+    approved_sources: list[Source] = []
     for source_id in payload.source_ids:
         source = store.sources.get(str(source_id))
         if source is None:
@@ -1128,14 +1207,151 @@ def post_admin_ingestion_run(
                 message="Only approved sources can be ingested",
                 details={"source_id": str(source_id), "status": source.status.value},
             )
+        approved_sources.append(source)
 
     job_id = uuid4()
+    run_id = str(job_id)
+    created_events = 0
+    merge_actions: list[str] = []
+
+    for source in approved_sources:
+        raw_event = {
+            "raw_title": f"{source.name} Featured Event",
+            "raw_date_or_schedule": now_sg(store).replace(
+                hour=20,
+                minute=0,
+                second=0,
+                microsecond=0,
+            ).isoformat(),
+            "raw_location": "Singapore",
+            "raw_description": f"Ingestion from source {source.name}",
+            "raw_price": "SGD 20-40",
+            "raw_url": str(source.url),
+        }
+
+        if source.access_method == SourceAccessMethod.manual:
+            raw_event["raw_date_or_schedule"] = ""
+            raw_event["raw_location"] = ""
+
+        normalized = normalize_event_agent(
+            payload={"raw_event": raw_event, "city_context": "Singapore"},
+            run_id=run_id,
+        )
+        if normalized["status"] == "error":
+            store.ingestion_metrics["source_parse_failures_total"] += 1
+            append_ingestion_log(
+                run_id=run_id,
+                level="error",
+                message="Normalizer failed",
+                user_id=admin_user.id,
+                source_id=str(source.id),
+                payload=normalized["error"],
+            )
+            continue
+
+        normalized_event = normalized["data"]["normalized_event"]
+        confidence_score = float(normalized_event["confidence_score"])
+        if confidence_score < 0.6:
+            store.ingestion_metrics["normalization_low_confidence_total"] += 1
+            store.ingestion_metrics["source_parse_failures_total"] += 1
+            append_ingestion_log(
+                run_id=run_id,
+                level="warning",
+                message="Low confidence normalization",
+                user_id=admin_user.id,
+                source_id=str(source.id),
+                payload={
+                    "confidence_score": confidence_score,
+                    "parsing_notes": normalized_event.get("parsing_notes"),
+                },
+            )
+
+        dedup = deduplicate_event_agent(
+            payload={
+                "candidate_event": normalized_event,
+                "similar_events": build_similar_events(normalized_event),
+            },
+            run_id=run_id,
+        )
+        if dedup["status"] == "error":
+            store.ingestion_metrics["source_parse_failures_total"] += 1
+            append_ingestion_log(
+                run_id=run_id,
+                level="error",
+                message="Deduplication failed",
+                user_id=admin_user.id,
+                source_id=str(source.id),
+                payload=dedup["error"],
+            )
+            continue
+
+        decision = dedup["data"]
+        action = decision["merge_action"]
+        merge_actions.append(action)
+        store.ingestion_metrics["dedup_merge_action_total"][action] += 1
+        append_ingestion_log(
+            run_id=run_id,
+            level="info",
+            message="Deduplication decision computed",
+            user_id=admin_user.id,
+            source_id=str(source.id),
+            payload=decision,
+        )
+
+        if action == "create_new":
+            event_id = str(uuid4())
+            start = datetime.fromisoformat(normalized_event["datetime_start"]).astimezone(SG_TZ)
+            end_value = normalized_event.get("datetime_end")
+            end = datetime.fromisoformat(end_value).astimezone(SG_TZ) if end_value else None
+            new_event = EventRecord(
+                event_id=event_id,
+                title=normalized_event["title"],
+                category=normalized_event["category"],
+                subcategory=normalized_event.get("subcategory"),
+                description=normalized_event.get("description"),
+                venue_name=normalized_event.get("venue_name"),
+                venue_address=normalized_event.get("venue_address"),
+                occurrences=[
+                    EventOccurrence(
+                        datetime_start=start,
+                        datetime_end=end,
+                        timezone="Asia/Singapore",
+                    )
+                ],
+                price=Price(
+                    min=normalized_event.get("price_min"),
+                    max=normalized_event.get("price_max"),
+                    currency=normalized_event.get("currency"),
+                ),
+                source_provenance=[
+                    SourceProvenance(
+                        source_id=source.id,
+                        source_name=source.name,
+                        source_url=str(source.url),
+                    )
+                ],
+            )
+            store.events[event_id] = new_event
+            created_events += 1
+            append_ingestion_log(
+                run_id=run_id,
+                level="info",
+                message="Created canonical event from ingestion",
+                user_id=admin_user.id,
+                source_id=str(source.id),
+                event_id=event_id,
+                payload={"title": new_event.title},
+            )
+
     store.ingestion_jobs.append(
         {
             "job_id": str(job_id),
             "source_ids": [str(source_id) for source_id in payload.source_ids],
             "reason": payload.reason,
             "queued_at": now_sg(store).isoformat(),
+            "run_id": run_id,
+            "created_events": created_events,
+            "merge_actions": merge_actions,
         }
     )
     return IngestionRunResponse(job_id=job_id, queued_count=len(payload.source_ids))
