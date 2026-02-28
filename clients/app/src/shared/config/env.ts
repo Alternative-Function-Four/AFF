@@ -1,9 +1,9 @@
 export type AppEnvironment = "local" | "preview" | "demo";
 
-function required(name: "EXPO_PUBLIC_API_BASE_URL"): string {
-  const value = process.env[name];
+function requiredApiBaseUrl(): string {
+  const value = process.env.EXPO_PUBLIC_API_BASE_URL;
   if (!value || value.trim().length === 0) {
-    throw new Error(`Missing required env var: ${name}`);
+    throw new Error("Missing required env var: EXPO_PUBLIC_API_BASE_URL");
   }
   return value;
 }
@@ -26,8 +26,15 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
-const apiBaseUrl = required("EXPO_PUBLIC_API_BASE_URL").replace(/\/$/, "");
-const appEnv = (process.env.EXPO_PUBLIC_APP_ENV ?? "local") as AppEnvironment;
+function parseAppEnvironment(value: string | undefined): AppEnvironment {
+  if (value === "preview" || value === "demo" || value === "local") {
+    return value;
+  }
+  return "local";
+}
+
+const apiBaseUrl = requiredApiBaseUrl().replace(/\/$/, "");
+const appEnv = parseAppEnvironment(process.env.EXPO_PUBLIC_APP_ENV);
 
 export const env = {
   apiBaseUrl,
