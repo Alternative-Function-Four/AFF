@@ -2,7 +2,7 @@
 
 ## 1. Product Summary
 
-AFF is a personalized local activity assistant for Singapore that recommends events, food experiences, and nightlife in a way that feels personal, timely, and non-generic.
+AFF is a personalized local activity assistant for Singapore that recommends events, food experiences, nightlife, sports, sightseeing, museums, outdoors activities, and movies in a way that feels personal, timely, and non-generic.
 
 The prototype must prove three things in one demo:
 
@@ -25,7 +25,7 @@ Users miss relevant local activities because available information is fragmented
 ### Persona B: Social Planner
 
 - Age 22-34, plans weekend activities for friends
-- Needs shortlists across events + food + nightlife
+- Needs shortlists across events + food + nightlife + sports + sightseeing + museums + outdoors + movies
 - Wants recommendations by vibe and budget
 
 ### Persona C: Niche Taste Explorer
