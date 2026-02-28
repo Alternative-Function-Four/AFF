@@ -186,10 +186,21 @@ async def post_admin_source_discovery_run(
     admin_user: UserRecord = Depends(get_admin_user),
 ) -> SourceDiscoveryRunResponse:
     del admin_user
+    print(
+        f"[source-discovery-endpoint] start max_new_per_topic={payload.max_new_per_topic}",
+        flush=True,
+    )
     await refresh_store_from_db(db)
     result = await run_source_discovery(
         db,
         max_new_per_topic=payload.max_new_per_topic,
     )
     await refresh_store_from_db(db)
+    print(
+        "[source-discovery-endpoint] completed "
+        f"run_id={result.run_id} "
+        f"discovered={result.discovered_sources} "
+        f"failed={result.failed_sources}",
+        flush=True,
+    )
     return result

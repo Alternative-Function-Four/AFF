@@ -38,12 +38,6 @@ async def recreate_db_schema() -> None:
         await connection.run_sync(Base.metadata.create_all)
 
 
-async def recreate_db_schema() -> None:
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.drop_all)
-        await connection.run_sync(Base.metadata.create_all)
-
-
 @asynccontextmanager
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionFactory() as session:

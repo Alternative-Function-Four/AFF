@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import base64
+import html
 import re
 import os
+import random
 from dataclasses import dataclass
 from datetime import datetime
 from pydantic import BaseModel, Field
@@ -32,6 +36,9 @@ from storage_service import list_sources
 
 TOPIC_MAX_NEW_DEFAULT = settings.source_discovery_max_new_per_topic
 DEFAULT_MAX_NEW_PER_DOMAIN = settings.source_discovery_max_new_per_domain
+AGENT_MAX_RETRIES = 5
+AGENT_BASE_RETRY_SECONDS = 1.0
+AGENT_MAX_RETRY_SECONDS = 20.0
 
 
 class SourceQualityAssessment(BaseModel):
@@ -86,6 +93,10 @@ def _canonicalize_url(url: str) -> str:
     return str(urlunparse(normalized))
 
 
+def _debug_print(label: str, message: str) -> None:
+    print(f"[source-discovery][{label}] {message}", flush=True)
+
+
 def _strip_html(raw_html: str) -> str:
     return re.sub(r"<[^>]+>", " ", raw_html or "").lower()
 
@@ -112,47 +123,209 @@ def _extract_description(html: str) -> str | None:
     return None
 
 
+def _extract_status_code(exc: Exception) -> int | None:
+    status_code = getattr(exc, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    response = getattr(exc, "response", None)
+    response_status = getattr(response, "status_code", None)
+    if isinstance(response_status, int):
+        return response_status
+    return None
+
+
+def _extract_retry_after_seconds(exc: Exception) -> float | None:
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    value = headers.get("retry-after")
+    if not value:
+        return None
+    try:
+        parsed = float(value.strip())
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return min(parsed, AGENT_MAX_RETRY_SECONDS)
+
+
+def _is_rate_limit_exception(exc: Exception) -> bool:
+    status_code = _extract_status_code(exc)
+    if status_code == 429:
+        return True
+    message = str(exc).lower()
+    return "rate limit" in message or "too many requests" in message or "status code: 429" in message
+
+
+def _is_transient_provider_exception(exc: Exception) -> bool:
+    status_code = _extract_status_code(exc)
+    if status_code in {500, 502, 503, 504}:
+        return True
+    return isinstance(exc, (TimeoutError, httpx.TimeoutException))
+
+
+def _compute_retry_delay(exc: Exception, attempt: int) -> float:
+    retry_after = _extract_retry_after_seconds(exc)
+    if retry_after is not None:
+        return retry_after
+    base = min(AGENT_MAX_RETRY_SECONDS, AGENT_BASE_RETRY_SECONDS * (2 ** (attempt - 1)))
+    jitter = random.uniform(0.0, 0.35)
+    return min(AGENT_MAX_RETRY_SECONDS, base + jitter)
+
+
+async def _run_agent_with_retry(
+    agent: Agent[Any, Any],
+    prompt: str,
+    *,
+    label: str,
+    action: str,
+) -> Any:
+    for attempt in range(1, AGENT_MAX_RETRIES + 1):
+        try:
+            return await agent.run(prompt)
+        except Exception as exc:
+            retryable = _is_rate_limit_exception(exc) or _is_transient_provider_exception(exc)
+            if not retryable or attempt >= AGENT_MAX_RETRIES:
+                raise
+            delay_seconds = _compute_retry_delay(exc, attempt)
+            _debug_print(
+                label,
+                f"{action}_retry attempt={attempt} wait={delay_seconds:.2f}s error={exc}",
+            )
+            await asyncio.sleep(delay_seconds)
+
+
 def _search_web(query: str, max_results: int = 8) -> list[str]:
     if not query.strip():
+        _debug_print("web_search_tool", "empty_query")
         return []
 
-    url = "https://duckduckgo.com/html/"
+    url = "https://www.bing.com/search"
     headers = {"User-Agent": "Mozilla/5.0 (compatible; AFFSourceDiscoveryBot/1.0)"}
-    try:
-        with httpx.Client(timeout=8.0, headers=headers, follow_redirects=True) as client:
-            response = client.get(url, params={"q": query}, timeout=8.0)
-        response.raise_for_status()
-    except (httpx.HTTPError, OSError):
+    timeout_seconds = 15.0
+    max_attempts = 2
+    _debug_print(
+        "web_search_tool",
+        f"start query={query!r} max_results={max_results}",
+    )
+    response: httpx.Response | None = None
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with httpx.Client(
+                timeout=timeout_seconds,
+                headers=headers,
+                follow_redirects=True,
+            ) as client:
+                response = client.get(url, params={"q": query}, timeout=timeout_seconds)
+            response.raise_for_status()
+            _debug_print(
+                "web_search_tool",
+                f"http_ok endpoint={url} attempt={attempt} status={response.status_code} final_url={response.url}",
+            )
+            break
+        except (httpx.HTTPError, OSError) as exc:
+            last_error = exc
+            _debug_print(
+                "web_search_tool",
+                f"http_error endpoint={url} attempt={attempt} query={query!r} error={exc}",
+            )
+
+    if response is None:
+        _debug_print("web_search_tool", f"request_failed query={query!r} error={last_error}")
         return []
 
     raw_html = response.text
     discovered_urls: list[str] = []
+    skipped_non_http = 0
+    skipped_bing = 0
+    skipped_duplicates = 0
+    skipped_missing_redirect_target = 0
 
-    candidate_links = re.findall(r'href=["\']([^"\']+)["\']', raw_html)
+    # Prefer Bing organic result anchors first; this is less noisy than global href scanning.
+    candidate_links: list[str] = []
+    organic_matches = re.findall(
+        r'<li[^>]*class=["\'][^"\']*\bb_algo\b[^"\']*["\'][^>]*>.*?<h2[^>]*>.*?<a[^>]+href=["\']([^"\']+)["\']',
+        raw_html,
+        re.IGNORECASE | re.DOTALL,
+    )
+    candidate_links.extend(organic_matches)
+    # Fallback: include all hrefs to preserve behavior if markup changes.
+    candidate_links.extend(re.findall(r'href=["\']([^"\']+)["\']', raw_html))
+    _debug_print(
+        "web_search_tool",
+        f"candidate_links_found organic={len(organic_matches)} total={len(candidate_links)} html_len={len(raw_html)}",
+    )
     for raw_link in candidate_links:
         if not raw_link:
             continue
-        candidate_url = raw_link.strip()
-        if not (candidate_url.startswith("http://") or candidate_url.startswith("https://")):
-            if "duckduckgo.com/l/" in candidate_url and "uddg=" in candidate_url:
-                parsed = urlparse(candidate_url)
-                values = parse_qs(parsed.query)
-                if "uddg" in values and values["uddg"]:
-                    candidate_url = unquote(values["uddg"][0])
+        candidate_url = html.unescape(raw_link.strip())
+        if candidate_url.startswith("//"):
+            candidate_url = f"https:{candidate_url}"
+
+        parsed_candidate = urlparse(candidate_url)
+        netloc = parsed_candidate.netloc.lower()
+        is_bing_redirect = (
+            "bing.com/ck/a" in candidate_url
+            or candidate_url.startswith("/ck/a")
+            or (parsed_candidate.path or "").startswith("/ck/a")
+        )
+
+        if is_bing_redirect:
+            values = parse_qs(parsed_candidate.query)
+            if "u" in values and values["u"]:
+                bing_u = unquote(values["u"][0]).strip()
+                decoded_url: str | None = None
+                if bing_u.startswith(("a1", "A1")) and len(bing_u) > 2:
+                    encoded = bing_u[2:]
+                    padding = "=" * ((4 - (len(encoded) % 4)) % 4)
+                    try:
+                        decoded_url = base64.urlsafe_b64decode(encoded + padding).decode("utf-8")
+                    except Exception:
+                        decoded_url = None
+                if decoded_url and decoded_url.startswith(("http://", "https://")):
+                    candidate_url = decoded_url.strip()
+                elif bing_u.startswith(("http://", "https://")):
+                    candidate_url = bing_u
                 else:
+                    skipped_missing_redirect_target += 1
                     continue
             else:
+                skipped_missing_redirect_target += 1
                 continue
+            parsed_candidate = urlparse(candidate_url)
+            netloc = parsed_candidate.netloc.lower()
+
+        if not (candidate_url.startswith("http://") or candidate_url.startswith("https://")):
+            skipped_non_http += 1
+            continue
+
+        if not netloc and "://" in candidate_url:
+            netloc = urlparse(candidate_url).netloc.lower()
         if not candidate_url:
             continue
-        if "duckduckgo.com" in urlparse(candidate_url).netloc.lower():
+        if "bing.com" in netloc:
+            skipped_bing += 1
             continue
         if candidate_url in discovered_urls:
+            skipped_duplicates += 1
             continue
         discovered_urls.append(candidate_url)
         if len(discovered_urls) >= max_results:
             break
 
+    _debug_print(
+        "web_search_tool",
+        "result "
+        + f"discovered={len(discovered_urls)} "
+        + f"skipped_non_http={skipped_non_http} "
+        + f"skipped_bing={skipped_bing} "
+        + f"skipped_duplicates={skipped_duplicates} "
+        + f"skipped_missing_redirect_target={skipped_missing_redirect_target} "
+        + f"sample={discovered_urls[:3]}",
+    )
     return discovered_urls
 
 
@@ -205,6 +378,7 @@ def _build_discovery_agent() -> Agent[None, list[str]] | None:
 
     @agent.tool_plain
     def search_web(query: str) -> list[str]:
+        _debug_print("web_search_tool", f"tool_called query={query!r}")
         return _search_web(query)
 
     @agent.tool_plain
@@ -266,17 +440,25 @@ async def _link_or_count_existing(
     return True
 
 
-def _run_agent_for_topic(
+async def _run_agent_for_topic(
     agent: Agent[None, list[str]],
     topic: TopicRecord,
     max_results: int,
+    runtime: _DiscoveryRuntime | None = None,
 ) -> list[str]:
+    label = runtime.run_id if runtime is not None else "unknown"
+    _debug_print(label, f"run_agent_for_topic start topic={topic.id} max_results={max_results}")
     prompt = (
         f"Return JSON array of up to {max_results} concrete Singapore event-listing URLs "
         f"for topic '{topic.name}'. Only return pages that are for Singapore and contain event "
         f"listings such as concerts or activities. Focus on official listing/event pages, not homepages."
     )
-    result = agent.run_sync(prompt)
+    result = await _run_agent_with_retry(
+        agent,
+        prompt,
+        label=label,
+        action=f"run_agent_for_topic topic={topic.id}",
+    )
     raw_output = result.output or []
     candidates = []
     if isinstance(raw_output, list):
@@ -295,7 +477,12 @@ def _run_agent_for_topic(
             for item in candidates_from_dict:
                 if isinstance(item, str):
                     candidates.append(item.strip())
-    return candidates[:max_results]
+    candidates = candidates[:max_results]
+    _debug_print(
+        label,
+        f"run_agent_for_topic got={len(candidates)} candidates sample={candidates[:3]}",
+    )
+    return candidates
 
 
 def _resolve_access_method(value: str) -> SourceAccessMethod:
@@ -305,7 +492,7 @@ def _resolve_access_method(value: str) -> SourceAccessMethod:
         return SourceAccessMethod.html_extract
 
 
-def _assess_source(
+async def _assess_source(
     scoring_agent: Agent[None, SourceQualityAssessment],
     topic: TopicRecord,
     query: str,
@@ -313,7 +500,10 @@ def _assess_source(
     page_title: str | None,
     description: str | None,
     page_text: str,
+    runtime: _DiscoveryRuntime | None = None,
 ) -> SourceQualityAssessment | None:
+    label = runtime.run_id if runtime is not None else "unknown"
+    _debug_print(label, f"assess_source start topic={topic.id} url={canonical_url}")
     prompt = f"""You are scoring one candidate source.
 Topic: {topic.name}
 Query used: {query}
@@ -335,11 +525,18 @@ Return a scoring profile with realistic values:
 """
 
     try:
-        result = scoring_agent.run_sync(prompt)
+        result = await _run_agent_with_retry(
+            scoring_agent,
+            prompt,
+            label=label,
+            action=f"assess_source topic={topic.id}",
+        )
         if result.output is None:
             raise ValueError("no assessment")
+        _debug_print(label, f"assess_source ok topic={topic.id} relevant={result.output.is_relevant}")
         return result.output
-    except Exception:
+    except Exception as exc:
+        _debug_print(label, f"assess_source failed topic={topic.id} error={exc}")
         return None
 
 
@@ -350,12 +547,22 @@ async def _process_topic(
     agent: Agent[None, list[str]],
     scoring_agent: Agent[None, SourceQualityAssessment],
 ) -> None:
+    _debug_print(runtime.run_id, f"process_topic_start topic={topic.id} name={topic.name}")
     max_per_topic = runtime.max_new_per_topic
     query = f"{topic.name} Singapore events listings"
 
     try:
-        candidates = _run_agent_for_topic(agent, topic, max_per_topic * 2)
-    except Exception:
+        candidates = await _run_agent_for_topic(
+            agent=agent,
+            topic=topic,
+            runtime=runtime,
+            max_results=max_per_topic * 2,
+        )
+    except Exception as exc:
+        _debug_print(
+            runtime.run_id,
+            f"process_topic_exception topic={topic.id} candidates_lookup_failed error={exc}",
+        )
         runtime.failed_sources += 1
         return
 
@@ -366,12 +573,17 @@ async def _process_topic(
 
         canonical_url = _canonicalize_url(raw_url)
         if not canonical_url:
+            _debug_print(runtime.run_id, f"skip_no_canonical topic={topic.id} raw_url={raw_url}")
             runtime.skipped_sources += 1
             continue
 
         parsed = urlparse(canonical_url)
         domain = parsed.netloc.lower()
         if runtime.domain_new_counts.get(domain, 0) >= runtime.max_new_per_domain:
+            _debug_print(
+                runtime.run_id,
+                f"skip_domain_limit topic={topic.id} domain={domain} url={canonical_url}",
+            )
             runtime.skipped_sources += 1
             continue
 
@@ -380,6 +592,10 @@ async def _process_topic(
             if exists_in_run and source_id is not None:
                 if await _link_or_count_existing(runtime, source_id, topic.id, db_session):
                     runtime.topic_links_created += 1
+                    _debug_print(
+                        runtime.run_id,
+                        f"linked_existing_source_in_run topic={topic.id} source={source_id} url={canonical_url}",
+                    )
             runtime.skipped_sources += 1
             continue
 
@@ -387,18 +603,26 @@ async def _process_topic(
         if exists and source_id:
             if await _link_or_count_existing(runtime, source_id, topic.id, db_session):
                 runtime.topic_links_created += 1
+                _debug_print(
+                    runtime.run_id,
+                    f"linked_existing_source topic={topic.id} source={source_id} url={canonical_url}",
+                )
             runtime.discovered_urls_in_run.add(canonical_url)
             runtime.skipped_sources += 1
             continue
 
         page = _fetch_page(canonical_url)
         if page.get("status_code", 0) < 200 or not page.get("html"):
+            _debug_print(
+                runtime.run_id,
+                f"fetch_failed topic={topic.id} url={canonical_url} status={page.get('status_code')} error={page.get('error')}",
+            )
             runtime.failed_sources += 1
             continue
 
         page_title = _extract_title(page.get("html", ""))
         description = _extract_description(page.get("html", ""))
-        assessment = _assess_source(
+        assessment = await _assess_source(
             scoring_agent=scoring_agent,
             topic=topic,
             query=query,
@@ -406,11 +630,14 @@ async def _process_topic(
             page_title=page_title,
             description=description,
             page_text=_strip_html(page.get("html", "")),
+            runtime=runtime,
         )
         if assessment is None:
+            _debug_print(runtime.run_id, f"assessment_none topic={topic.id} url={canonical_url}")
             runtime.failed_sources += 1
             continue
         if not assessment.is_relevant:
+            _debug_print(runtime.run_id, f"assessment_not_relevant topic={topic.id} url={canonical_url}")
             runtime.failed_sources += 1
             runtime.skipped_sources += 1
             continue
@@ -446,6 +673,7 @@ async def _process_topic(
         try:
             inserted = await create_source(db_session, source_payload)
         except Exception:
+            _debug_print(runtime.run_id, f"create_source_failed topic={topic.id} url={canonical_url}")
             runtime.failed_sources += 1
             continue
 
@@ -454,9 +682,17 @@ async def _process_topic(
         runtime.discovered_urls_in_run.add(canonical_url)
         runtime.discovered_sources += 1
         discovered_for_topic += 1
+        _debug_print(
+            runtime.run_id,
+            f"created_source topic={topic.id} source={inserted.id} url={canonical_url}",
+        )
         runtime.domain_new_counts[domain] = runtime.domain_new_counts.get(domain, 0) + 1
         if await _link_or_count_existing(runtime, str(inserted.id), topic.id, db_session):
             runtime.topic_links_created += 1
+            _debug_print(
+                runtime.run_id,
+                f"linked_new_source topic={topic.id} source={inserted.id} url={canonical_url}",
+            )
 
 
 async def run_source_discovery(
@@ -465,6 +701,7 @@ async def run_source_discovery(
     max_new_per_topic: int = TOPIC_MAX_NEW_DEFAULT,
     max_new_per_domain: int = DEFAULT_MAX_NEW_PER_DOMAIN,
 ) -> SourceDiscoveryRunResponse:
+    _debug_print("discover", "run_source_discovery_entered")
     topic_records = await list_topics(db_session)
     existing_sources = await list_sources(db_session)
     existing_links = await list_source_topic_links(db_session)
@@ -488,7 +725,10 @@ async def run_source_discovery(
     topic_agent = _build_discovery_agent()
     scoring_agent = _build_scoring_agent()
     if topic_agent is None or scoring_agent is None:
+        _debug_print("discover", "agents_not_ready")
         raise RuntimeError("Source discovery and scoring agents must be configured")
+
+    _debug_print(runtime.run_id, f"agents_ready topics={len(topic_records)}")
 
     for topic in topic_records:
         runtime.topics_processed += 1
@@ -499,6 +739,11 @@ async def run_source_discovery(
             agent=topic_agent,
             scoring_agent=scoring_agent,
         )
+
+    _debug_print(
+        runtime.run_id,
+        f"run_complete topics_processed={runtime.topics_processed} discovered_sources={runtime.discovered_sources} topic_links_created={runtime.topic_links_created} skipped_sources={runtime.skipped_sources} failed_sources={runtime.failed_sources}",
+    )
 
     return SourceDiscoveryRunResponse(
         run_id=runtime.run_id,
