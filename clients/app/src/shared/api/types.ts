@@ -58,6 +58,9 @@ export interface PreferenceProfileInput {
   preferred_subcategories: string[];
   budget_mode: BudgetMode;
   preferred_distance_km: number;
+  home_lat: number;
+  home_lng: number;
+  home_address: string;
   active_days: ActiveDays;
   preferred_times: PreferredTime[];
   anti_preferences: string[];

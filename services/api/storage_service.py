@@ -272,6 +272,9 @@ def to_preference(row: Preference) -> PreferenceProfile:
         preferred_subcategories=row.preferred_subcategories,
         budget_mode=row.budget_mode,
         preferred_distance_km=row.preferred_distance_km,
+        home_lat=row.home_lat,
+        home_lng=row.home_lng,
+        home_address=row.home_address,
         active_days=row.active_days,
         preferred_times=row.preferred_times,
         anti_preferences=row.anti_preferences,
@@ -567,6 +570,9 @@ async def save_preference(
     row.preferred_subcategories = list(preference.preferred_subcategories)
     row.budget_mode = preference.budget_mode.value
     row.preferred_distance_km = preference.preferred_distance_km
+    row.home_lat = preference.home_lat
+    row.home_lng = preference.home_lng
+    row.home_address = preference.home_address
     row.active_days = preference.active_days.value
     row.preferred_times = [item.value for item in preference.preferred_times]
     row.anti_preferences = list(preference.anti_preferences)

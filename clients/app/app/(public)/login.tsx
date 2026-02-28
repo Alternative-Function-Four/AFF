@@ -16,6 +16,7 @@ import { FormField } from "../../src/shared/ui/FormField";
 import { Screen } from "../../src/shared/ui/Screen";
 import { SectionCard } from "../../src/shared/ui/SectionCard";
 import { StatusMessage } from "../../src/shared/ui/StatusMessage";
+import { buttonStyles, palette, textStyles } from "../../src/shared/ui/theme";
 
 const loginSchema = z.object({
   display_name: z.string().trim().min(1, "Display name is required.")
@@ -146,54 +147,35 @@ export default function LoginScreen(): JSX.Element {
 
 const styles = StyleSheet.create({
   subtitle: {
-    color: "#445466",
-    lineHeight: 20
+    ...textStyles.subtitle
   },
   debugSection: {
-    gap: 8
+    gap: 10
   },
   debugToggle: {
-    minHeight: 44,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#CCD5E0",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FFFFFF"
+    ...buttonStyles.secondaryBtn
   },
   debugToggleLabel: {
-    color: "#223B53",
-    fontWeight: "600"
+    ...buttonStyles.secondaryLabel
   },
   adminSeedBtn: {
-    minHeight: 44,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#D7E2F7",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#F4F7FF"
+    ...buttonStyles.secondaryBtn,
+    backgroundColor: palette.surfaceMuted
   },
   adminSeedBtnSelected: {
-    borderColor: "#1E4FDB",
-    backgroundColor: "#EEF3FF"
+    borderColor: palette.accentSoftBorder,
+    backgroundColor: palette.accentSoft
   },
   adminSeedLabel: {
-    color: "#223B53",
-    fontWeight: "600"
+    ...buttonStyles.secondaryLabel
   },
   adminSeedLabelSelected: {
-    color: "#11388E"
+    color: palette.textPrimary
   },
   primaryBtn: {
-    minHeight: 44,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#1E4FDB"
+    ...buttonStyles.primaryBtn
   },
   primaryLabel: {
-    color: "#FFFFFF",
-    fontWeight: "700"
+    ...buttonStyles.primaryLabel
   }
 });

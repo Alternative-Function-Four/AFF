@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
+import { buttonStyles, palette, textStyles, typography } from "./theme";
+
 interface TagInputFieldProps {
   label: string;
   values: string[];
@@ -51,7 +53,7 @@ export function TagInputField({
           onChangeText={setDraft}
           style={[styles.input, error ? styles.inputError : undefined]}
           placeholder={placeholder}
-          placeholderTextColor="#607184"
+          placeholderTextColor={palette.textTertiary}
           autoCapitalize="none"
           autoCorrect={false}
           onSubmitEditing={() => addTag(draft)}
@@ -102,98 +104,96 @@ export function TagInputField({
 
 const styles = StyleSheet.create({
   wrap: {
-    gap: 6
+    gap: 8
   },
   label: {
-    color: "#12263A",
-    fontWeight: "600"
+    ...textStyles.label
   },
   row: {
     flexDirection: "row",
-    gap: 8
+    gap: 10
   },
   input: {
     flex: 1,
-    minHeight: 44,
-    borderRadius: 8,
+    minHeight: 46,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#CCD5E0",
-    paddingHorizontal: 12,
-    color: "#12263A",
-    backgroundColor: "#FFFFFF"
+    borderColor: palette.border,
+    paddingHorizontal: 14,
+    color: palette.textPrimary,
+    backgroundColor: palette.surface,
+    fontFamily: typography.body
   },
   inputError: {
-    borderColor: "#D92D20"
+    borderColor: palette.danger
   },
   addBtn: {
-    minHeight: 44,
-    borderRadius: 8,
+    ...buttonStyles.primaryBtn,
     paddingHorizontal: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#1E4FDB"
+    minWidth: 68
   },
   addLabel: {
-    color: "#FFFFFF",
-    fontWeight: "700"
+    ...buttonStyles.primaryLabel
   },
   suggestions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 10
   },
   chip: {
-    minHeight: 44,
+    minHeight: 42,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#CCD5E0",
-    backgroundColor: "#FFFFFF",
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 12
+    paddingHorizontal: 14
   },
   chipSelected: {
-    borderColor: "#1E4FDB",
-    backgroundColor: "#EEF3FF"
+    borderColor: palette.accentSoftBorder,
+    backgroundColor: palette.accentSoft
   },
   chipLabel: {
-    color: "#1A3149",
-    fontWeight: "600"
+    color: palette.textPrimary,
+    fontFamily: typography.body,
+    fontWeight: "700"
   },
   chipLabelSelected: {
-    color: "#11388E"
+    color: palette.textPrimary
   },
   tags: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 10
   },
   tag: {
     minHeight: 36,
     borderRadius: 999,
-    backgroundColor: "#EEF3FF",
+    backgroundColor: palette.surfaceMuted,
     borderWidth: 1,
-    borderColor: "#C5D3FA",
-    paddingHorizontal: 10,
+    borderColor: palette.border,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 6
   },
   tagLabel: {
-    color: "#1A3149",
-    fontWeight: "600"
+    color: palette.textPrimary,
+    fontFamily: typography.body,
+    fontWeight: "700"
   },
   remove: {
-    color: "#375CAE",
+    color: palette.textSecondary,
     fontSize: 18,
     lineHeight: 18
   },
   hint: {
-    color: "#607184",
-    fontSize: 12
+    ...textStyles.helper
   },
   error: {
-    color: "#D92D20",
+    color: palette.danger,
+    fontFamily: typography.body,
     fontSize: 12
   }
 });

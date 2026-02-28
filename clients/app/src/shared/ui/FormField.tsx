@@ -1,5 +1,7 @@
 import { StyleSheet, Text, TextInput, TextInputProps, View } from "react-native";
 
+import { palette, textStyles, typography } from "./theme";
+
 interface FormFieldProps extends TextInputProps {
   label: string;
   hint?: string;
@@ -13,7 +15,7 @@ export function FormField({ label, hint, error, style, ...inputProps }: FormFiel
       <TextInput
         {...inputProps}
         style={[styles.input, style, error ? styles.inputError : undefined]}
-        placeholderTextColor="#607184"
+        placeholderTextColor={palette.textTertiary}
       />
       {error ? <Text style={styles.error}>{error}</Text> : hint ? <Text style={styles.hint}>{hint}</Text> : null}
     </View>
@@ -22,30 +24,31 @@ export function FormField({ label, hint, error, style, ...inputProps }: FormFiel
 
 const styles = StyleSheet.create({
   wrap: {
-    gap: 6
+    gap: 8
   },
   label: {
-    color: "#12263A",
-    fontWeight: "600"
+    ...textStyles.label
   },
   input: {
-    minHeight: 44,
-    borderRadius: 8,
+    minHeight: 46,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#CCD5E0",
-    paddingHorizontal: 12,
-    color: "#12263A",
-    backgroundColor: "#FFFFFF"
+    borderColor: palette.border,
+    paddingHorizontal: 14,
+    color: palette.textPrimary,
+    backgroundColor: palette.surface,
+    fontFamily: typography.body
   },
   inputError: {
-    borderColor: "#D92D20"
+    borderColor: palette.danger
   },
   hint: {
-    color: "#607184",
-    fontSize: 12
+    ...textStyles.helper
   },
   error: {
-    color: "#D92D20",
-    fontSize: 12
+    color: palette.danger,
+    fontFamily: typography.body,
+    fontSize: 12,
+    lineHeight: 18
   }
 });

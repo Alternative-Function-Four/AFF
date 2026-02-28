@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { FieldOption } from "./fieldTypes";
+import { palette, textStyles, typography } from "./theme";
 
 interface MultiSelectChipsFieldProps<T extends string> {
   label: string;
@@ -51,44 +52,44 @@ export function MultiSelectChipsField<T extends string>({
 
 const styles = StyleSheet.create({
   wrap: {
-    gap: 6
+    gap: 8
   },
   label: {
-    color: "#12263A",
-    fontWeight: "600"
+    ...textStyles.label
   },
   row: {
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
     flexWrap: "wrap"
   },
   chip: {
-    minHeight: 44,
+    minHeight: 42,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#CCD5E0",
-    backgroundColor: "#FFFFFF",
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 12
+    paddingHorizontal: 14
   },
   chipSelected: {
-    borderColor: "#1E4FDB",
-    backgroundColor: "#EEF3FF"
+    borderColor: palette.accentSoftBorder,
+    backgroundColor: palette.accentSoft
   },
   chipLabel: {
-    color: "#1A3149",
-    fontWeight: "600"
+    color: palette.textPrimary,
+    fontFamily: typography.body,
+    fontWeight: "700"
   },
   chipLabelSelected: {
-    color: "#11388E"
+    color: palette.textPrimary
   },
   hint: {
-    color: "#607184",
-    fontSize: 12
+    ...textStyles.helper
   },
   error: {
-    color: "#D92D20",
+    color: palette.danger,
+    fontFamily: typography.body,
     fontSize: 12
   }
 });

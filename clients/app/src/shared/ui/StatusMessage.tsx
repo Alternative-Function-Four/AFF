@@ -1,5 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
 
+import { palette, typography } from "./theme";
+
 interface StatusMessageProps {
   tone?: "error" | "info" | "success";
   message: string;
@@ -15,20 +17,26 @@ export function StatusMessage({ tone = "info", message }: StatusMessageProps): J
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1
   },
   info: {
-    backgroundColor: "#E9F2FF"
+    backgroundColor: palette.infoSoft,
+    borderColor: "#BFD5EA"
   },
   error: {
-    backgroundColor: "#FFE8E8"
+    backgroundColor: palette.dangerSoft,
+    borderColor: "#F0C3BE"
   },
   success: {
-    backgroundColor: "#E9FBEF"
+    backgroundColor: palette.successSoft,
+    borderColor: "#C8E1D1"
   },
   text: {
-    color: "#12263A"
+    color: palette.textPrimary,
+    fontFamily: typography.body,
+    lineHeight: 20
   }
 });

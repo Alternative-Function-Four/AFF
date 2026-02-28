@@ -13,6 +13,9 @@ describe("preferences form mapping", () => {
       preferred_subcategories: ["indie_music", "rooftop"],
       budget_mode: "moderate",
       preferred_distance_km: 8,
+      home_lat: 1.3005,
+      home_lng: 103.8452,
+      home_address: "Tiong Bahru, Singapore",
       active_days: "both",
       preferred_times: ["evening", "late_night"],
       anti_preferences: ["large_crowds"]
@@ -23,6 +26,9 @@ describe("preferences form mapping", () => {
       preferred_subcategories: ["indie_music", "rooftop"],
       budget_mode: "moderate",
       preferred_distance_km: 8,
+      home_lat: 1.3005,
+      home_lng: 103.8452,
+      home_address: "Tiong Bahru, Singapore",
       active_days: "both",
       preferred_times: ["evening", "late_night"],
       anti_preferences: ["large_crowds"]
@@ -35,6 +41,9 @@ describe("preferences form mapping", () => {
       preferred_subcategories: ["indie_music"],
       budget_mode: "budget",
       preferred_distance_km: 3,
+      home_lat: 1.312,
+      home_lng: 103.902,
+      home_address: "Bedok, Singapore",
       active_days: "weekday",
       preferred_times: ["morning", "afternoon"],
       anti_preferences: ["large_crowds", "rain"]
@@ -45,6 +54,9 @@ describe("preferences form mapping", () => {
       preferred_subcategories: ["indie_music"],
       budget_mode: "budget",
       preferred_distance_km: 3,
+      home_lat: 1.312,
+      home_lng: 103.902,
+      home_address: "Bedok, Singapore",
       active_days: "weekday",
       preferred_times: ["morning", "afternoon"],
       anti_preferences: ["large_crowds", "rain"]
@@ -57,6 +69,9 @@ describe("preferences form mapping", () => {
       preferred_subcategories: [],
       budget_mode: "any",
       preferred_distance_km: 5,
+      home_lat: 1.3521,
+      home_lng: 103.8198,
+      home_address: "Singapore",
       active_days: "both",
       preferred_times: ["sunrise"],
       anti_preferences: []
@@ -74,6 +89,9 @@ describe("preferences form mapping", () => {
       preferred_subcategories: [],
       budget_mode: "any",
       preferred_distance_km: 5,
+      home_lat: 1.3521,
+      home_lng: 103.8198,
+      home_address: "Singapore",
       active_days: "both",
       preferred_times: ["evening"],
       anti_preferences: []

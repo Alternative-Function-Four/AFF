@@ -9,6 +9,7 @@ import { formatDateTimeSg } from "../../../src/shared/time/format";
 import { Screen } from "../../../src/shared/ui/Screen";
 import { SectionCard } from "../../../src/shared/ui/SectionCard";
 import { StatusMessage } from "../../../src/shared/ui/StatusMessage";
+import { buttonStyles, textStyles } from "../../../src/shared/ui/theme";
 
 const feedbackSignals: FeedbackSignal[] = ["interested", "not_for_me", "already_knew"];
 
@@ -95,34 +96,24 @@ export default function EventDetailScreen(): JSX.Element {
 
 const styles = StyleSheet.create({
   meta: {
-    color: "#3D5064",
-    lineHeight: 19
+    ...textStyles.body
   },
   listBlock: {
-    gap: 4
+    gap: 6
   },
   listTitle: {
-    fontWeight: "700",
-    color: "#162B40"
+    ...textStyles.label
   },
   row: {
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
     flexWrap: "wrap"
   },
   feedbackBtn: {
-    minHeight: 44,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#91A0AF",
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 10
+    ...buttonStyles.subtleChipBtn
   },
   feedbackLabel: {
-    fontSize: 12,
-    color: "#1A3149",
-    fontWeight: "600"
+    ...buttonStyles.subtleChipLabel,
+    textTransform: "capitalize"
   }
 });

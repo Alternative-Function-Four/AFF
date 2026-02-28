@@ -2,12 +2,28 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 
 import { AppProviders } from "../src/shared/providers/AppProviders";
+import { palette, typography } from "../src/shared/ui/theme";
 
 export default function RootLayout(): JSX.Element {
   return (
     <AppProviders>
       <StatusBar style="dark" />
-      <Stack screenOptions={{ headerTitleStyle: { fontWeight: "700" } }}>
+      <Stack
+        screenOptions={{
+          headerTitleStyle: {
+            fontWeight: "700",
+            fontFamily: typography.display
+          },
+          headerStyle: {
+            backgroundColor: palette.surface
+          },
+          headerTintColor: palette.textPrimary,
+          headerShadowVisible: false,
+          contentStyle: {
+            backgroundColor: palette.pageBackground
+          }
+        }}
+      >
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="(public)/login" options={{ title: "AFF Login" }} />
         <Stack.Screen name="(user)/feed" options={{ title: "Feed" }} />

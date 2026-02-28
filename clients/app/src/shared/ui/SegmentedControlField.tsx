@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { FieldOption } from "./fieldTypes";
+import { palette, textStyles, typography } from "./theme";
 
 interface SegmentedControlFieldProps<T extends string> {
   label: string;
@@ -45,15 +46,14 @@ export function SegmentedControlField<T extends string>({
 
 const styles = StyleSheet.create({
   wrap: {
-    gap: 6
+    gap: 8
   },
   label: {
-    color: "#12263A",
-    fontWeight: "600"
+    ...textStyles.label
   },
   row: {
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
     flexWrap: "wrap"
   },
   segment: {
@@ -61,29 +61,30 @@ const styles = StyleSheet.create({
     minWidth: 84,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#CCD5E0",
+    borderColor: palette.border,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 12,
-    backgroundColor: "#FFFFFF"
+    paddingHorizontal: 14,
+    backgroundColor: palette.surface
   },
   segmentSelected: {
-    backgroundColor: "#1E4FDB",
-    borderColor: "#1E4FDB"
+    backgroundColor: palette.accent,
+    borderColor: palette.accentPressed
   },
   segmentLabel: {
-    color: "#1A3149",
-    fontWeight: "600"
+    color: palette.textPrimary,
+    fontFamily: typography.body,
+    fontWeight: "700"
   },
   segmentLabelSelected: {
-    color: "#FFFFFF"
+    color: palette.accentTextOn
   },
   hint: {
-    color: "#607184",
-    fontSize: 12
+    ...textStyles.helper
   },
   error: {
-    color: "#D92D20",
+    color: palette.danger,
+    fontFamily: typography.body,
     fontSize: 12
   }
 });
