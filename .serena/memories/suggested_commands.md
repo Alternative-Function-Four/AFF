@@ -1,0 +1,11 @@
+- cd /Users/lucy/conductor/workspaces/AFF-v1/bangui
+- make run
+- make test
+- cd services/api && uv sync --group dev
+- cd services/api && uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
+- cd services/api && uv run pytest -q
+- cd services/api && uv run pytest -q services/api/tests/test_api.py -k <test_name>
+- cd services/api && uv run ruff check .
+- cd services/api && uv run pyrefly check .
+- cd .github/workflows for CI reference in .github/workflows/ci.yml
+- Common shell utilities (Darwin): ls, find, git status, git diff, git log, grep, cd

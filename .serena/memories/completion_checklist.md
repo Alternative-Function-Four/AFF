@@ -1,0 +1,5 @@
+- Run tests for changed scope: `cd services/api && uv run pytest -q` (or targeted tests first).
+- Run lint/type checks: `cd services/api && uv run ruff check .` and `cd services/api && uv run pyrefly check .`.
+- Verify API entrypoint still starts: `cd services/api && uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000`.
+- If behavior changed, update/add tests under `services/api/tests` and keep test fixtures consistent.
+- Keep responses and data models consistent with OpenAPI/contracts in docs/spec.
