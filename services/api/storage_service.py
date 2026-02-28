@@ -138,7 +138,7 @@ def to_event_record(row: Event) -> EventRecord:
         longitude=row.longitude,
         event_url=row.event_url,
         image_url=row.image_url,
-        embedding=list(row.embedding) if row.embedding else None,
+        embedding=list(row.embedding) if row.embedding is not None else None,
         content_hash=row.content_hash,
         status=row.status,
         created_at=row.created_at,
@@ -1061,6 +1061,7 @@ async def seed_initial_data(session: AsyncSession) -> dict[str, Any]:
         created_at=current,
     )
     session.add_all([topic_events, topic_food, topic_nightlife])
+    await session.flush()
 
     session.add_all([
         SourceTopicLink(

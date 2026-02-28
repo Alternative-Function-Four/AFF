@@ -7,6 +7,7 @@ from core.settings import settings
 from entities import Base
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 
 DATABASE_URL = settings.normalized_database_url()
@@ -16,6 +17,7 @@ engine = create_async_engine(
     DATABASE_URL,
     echo=False,
     pool_pre_ping=True,
+    poolclass=NullPool,
 )
 
 AsyncSessionFactory = async_sessionmaker(
