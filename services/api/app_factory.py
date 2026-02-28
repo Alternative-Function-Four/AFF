@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from database import AsyncSessionFactory, init_db_schema
 from dependencies import register_handlers
@@ -23,6 +24,12 @@ async def _lifespan(_app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="AFF API", version="1.0.0", lifespan=_lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     register_handlers(app)
     app.include_router(public_router)
     app.include_router(admin_router)

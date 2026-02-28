@@ -1,0 +1,19 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "moduleResolution": "bundler",
+    "noUncheckedIndexedAccess": true,
+    "types": [
+      "react",
+      "react-native"
+    ]
+  },
+  "include": [
+    "app",
+    "src",
+    "expo-env.d.ts",
+    ".expo/types/**/*.ts"
+  ]
+}
