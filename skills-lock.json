@@ -1,6 +1,11 @@
 {
   "version": 1,
   "skills": {
+    "feiskyer-spec-kit-skill": {
+      "source": "smithery.ai",
+      "sourceType": "well-known",
+      "computedHash": "ecd3776e2355c85f4141e2b5d1024d0718d315dc3263fe3e4331b9862ed011a6"
+    },
     "massgen-serena": {
       "source": "smithery/ai",
       "sourceType": "well-known",
