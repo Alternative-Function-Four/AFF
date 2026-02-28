@@ -10,6 +10,11 @@
       "source": "smithery/ai",
       "sourceType": "well-known",
       "computedHash": "edf3c62fee13c4ba6702f9f3341c584397e4a3eac25b1cdf08f91836a45adbfe"
+    },
+    "zxkane-aws-mcp-setup": {
+      "source": "smithery.ai",
+      "sourceType": "well-known",
+      "computedHash": "74c6ea3294ebcbca46b8ff0e32141334306955ab17858bab3f6b506f647112e8"
     }
   }
 }

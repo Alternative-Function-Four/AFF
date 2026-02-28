@@ -14,3 +14,10 @@ args = ["@playwright/mcp@latest"]
 args = ["--from", "git+https://github.com/oraios/serena", "serena-mcp-server", "--context", "codex", "--open-web-dashboard", "False"]
 command = "uvx"
 
+[mcp_servers.aws_mcp]
+command = "uvx"
+args = [
+  "mcp-proxy-for-aws@latest",
+  "https://aws-mcp.us-east-1.api.aws/mcp",
+  "--metadata", "AWS_REGION=ap-southeast-1"
+]
