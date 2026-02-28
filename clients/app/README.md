@@ -13,6 +13,13 @@ Expo React Native client scaffold aligned with `docs/spec/02-architecture/FRONTE
 
 - Typecheck: `npm run typecheck`
 - Tests: `npm run test`
+- Web export build: `npm run build`
+
+## Production Build Input
+
+`EXPO_PUBLIC_API_BASE_URL` is compiled into the web bundle at build time. For deployment builds, use an HTTPS backend URL.
+
+Do not deploy with localhost/127.0.0.1 or plain HTTP API URLs.
 
 ## Included routes
 

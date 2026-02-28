@@ -181,3 +181,6 @@ clients/app/.env.test.local
 clients/app/.env.production.local
 clients/app/dist/
 clients/app/coverage/
+
+# CDK local output
+.cdk-outputs.json
