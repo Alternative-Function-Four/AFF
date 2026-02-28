@@ -91,7 +91,7 @@ def event_matches_window(event: EventRecord, time_window: TimeWindow, now: datet
     if time_window == TimeWindow.tonight:
         return start.date() == now.date() and start.hour >= 18
     if time_window == TimeWindow.weekend:
-        return start.weekday() in {5, 6} and start <= now + timedelta(days=7)
+        return now <= start <= now + timedelta(days=7) and start.weekday() in {5, 6}
     if time_window == TimeWindow.next_7_days:
         return now <= start <= now + timedelta(days=7)
     return True
