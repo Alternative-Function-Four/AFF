@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "massgen-serena": {
+      "source": "smithery/ai",
+      "sourceType": "well-known",
+      "computedHash": "f1b20807115f95c8cc61ce71b4ab686c2d037c972c701d67d1999fbb851e574e"
+    },
+    "smithery-ai-cli": {
+      "source": "smithery/ai",
+      "sourceType": "well-known",
+      "computedHash": "edf3c62fee13c4ba6702f9f3341c584397e4a3eac25b1cdf08f91836a45adbfe"
+    }
+  }
+}
