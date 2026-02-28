@@ -12,6 +12,7 @@ dependencies = [
     { name = "asyncpg" },
     { name = "fastapi" },
     { name = "greenlet" },
+    { name = "httpx" },
     { name = "psycopg2-binary" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim", extra = ["logfire", "mcp", "openai"] },
@@ -22,7 +23,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pyrefly" },
     { name = "pytest" },
     { name = "ruff" },
@@ -35,6 +35,7 @@ requires-dist = [
     { name = "asyncpg" },
     { name = "fastapi" },
     { name = "greenlet" },
+    { name = "httpx" },
     { name = "psycopg2-binary" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim", extras = ["logfire", "mcp", "openai"], specifier = ">=1.63.0" },
@@ -45,7 +46,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx" },
     { name = "pyrefly" },
     { name = "pytest" },
     { name = "ruff" },
