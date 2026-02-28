@@ -9,6 +9,7 @@ dependencies = [
   "uvicorn",
   "psycopg2-binary",
   "sqlalchemy",
+  "pgvector",
   "greenlet",
   "asyncpg",
   "aiosqlite",
@@ -17,6 +18,8 @@ dependencies = [
   "pydantic",
   "pydantic-settings",
   "httpx",
+  "beautifulsoup4",
+  "python-dateutil",
 ]
 
 [dependency-groups]

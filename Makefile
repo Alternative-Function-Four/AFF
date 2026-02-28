@@ -14,7 +14,13 @@ test:
 	cd $(API_DIR) && $(UV) run pytest -q
 
 lint:
-	cd $(API_DIR) && $(UV) run ruff check . && $(UV) run pyrefly check .
+	cd $(API_DIR) && $(UV) run ruff check . && $(UV) run pyrefly check . \
+		--disable-project-excludes-heuristics true \
+		--project-excludes '**/node_modules' \
+		--project-excludes '**/__pycache__' \
+		--project-excludes '**/.venv/**' \
+		--project-excludes '**/site-packages/**' \
+		--project-excludes '**/venv/**'
 
 app-start:
 	cd $(APP_DIR) && EXPO_NO_TELEMETRY=1 npm run start

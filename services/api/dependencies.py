@@ -11,7 +11,7 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from core import now_sg
+from core import as_sg_datetime, now_sg
 from models import ErrorEnvelope, UserRecord
 from state import STORE
 from storage_service import get_session, get_user_by_id
@@ -142,7 +142,7 @@ async def get_current_user(
         )
 
     session = await get_session(db, credentials.credentials)
-    if session is None or session.expires_at < now_sg(STORE):
+    if session is None or as_sg_datetime(session.expires_at) < now_sg(STORE):
         raise APIError(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="UNAUTHORIZED",
