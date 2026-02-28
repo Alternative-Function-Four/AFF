@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import html
 import re
 import os
 import random
@@ -197,61 +199,133 @@ async def _run_agent_with_retry(
 
 def _search_web(query: str, max_results: int = 8) -> list[str]:
     if not query.strip():
+        _debug_print("web_search_tool", "empty_query")
         return []
 
-    url = "https://duckduckgo.com/html/"
+    url = "https://www.bing.com/search"
     headers = {"User-Agent": "Mozilla/5.0 (compatible; AFFSourceDiscoveryBot/1.0)"}
-    try:
-        with httpx.Client(timeout=8.0, headers=headers, follow_redirects=True) as client:
-            response = client.get(url, params={"q": query}, timeout=8.0)
-        response.raise_for_status()
-    except (httpx.HTTPError, OSError):
+    timeout_seconds = 15.0
+    max_attempts = 2
+    _debug_print(
+        "web_search_tool",
+        f"start query={query!r} max_results={max_results}",
+    )
+    response: httpx.Response | None = None
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with httpx.Client(
+                timeout=timeout_seconds,
+                headers=headers,
+                follow_redirects=True,
+            ) as client:
+                response = client.get(url, params={"q": query}, timeout=timeout_seconds)
+            response.raise_for_status()
+            _debug_print(
+                "web_search_tool",
+                f"http_ok endpoint={url} attempt={attempt} status={response.status_code} final_url={response.url}",
+            )
+            break
+        except (httpx.HTTPError, OSError) as exc:
+            last_error = exc
+            _debug_print(
+                "web_search_tool",
+                f"http_error endpoint={url} attempt={attempt} query={query!r} error={exc}",
+            )
+
+    if response is None:
+        _debug_print("web_search_tool", f"request_failed query={query!r} error={last_error}")
         return []
 
     raw_html = response.text
     discovered_urls: list[str] = []
+    skipped_non_http = 0
+    skipped_bing = 0
+    skipped_duplicates = 0
+    skipped_missing_redirect_target = 0
 
-    candidate_links = re.findall(r'href=["\']([^"\']+)["\']', raw_html)
+    # Prefer Bing organic result anchors first; this is less noisy than global href scanning.
+    candidate_links: list[str] = []
+    organic_matches = re.findall(
+        r'<li[^>]*class=["\'][^"\']*\bb_algo\b[^"\']*["\'][^>]*>.*?<h2[^>]*>.*?<a[^>]+href=["\']([^"\']+)["\']',
+        raw_html,
+        re.IGNORECASE | re.DOTALL,
+    )
+    candidate_links.extend(organic_matches)
+    # Fallback: include all hrefs to preserve behavior if markup changes.
+    candidate_links.extend(re.findall(r'href=["\']([^"\']+)["\']', raw_html))
+    _debug_print(
+        "web_search_tool",
+        f"candidate_links_found organic={len(organic_matches)} total={len(candidate_links)} html_len={len(raw_html)}",
+    )
     for raw_link in candidate_links:
         if not raw_link:
             continue
-        candidate_url = raw_link.strip()
+        candidate_url = html.unescape(raw_link.strip())
         if candidate_url.startswith("//"):
             candidate_url = f"https:{candidate_url}"
 
         parsed_candidate = urlparse(candidate_url)
         netloc = parsed_candidate.netloc.lower()
-        is_ddg_redirect = (
-            "uddg=" in candidate_url
-            and (
-                "duckduckgo.com/l/" in candidate_url
-                or candidate_url.startswith("/l/")
-                or (parsed_candidate.path or "").startswith("/l/")
-            )
+        is_bing_redirect = (
+            "bing.com/ck/a" in candidate_url
+            or candidate_url.startswith("/ck/a")
+            or (parsed_candidate.path or "").startswith("/ck/a")
         )
 
-        if is_ddg_redirect:
+        if is_bing_redirect:
             values = parse_qs(parsed_candidate.query)
-            if "uddg" in values and values["uddg"]:
-                candidate_url = unquote(values["uddg"][0]).strip()
+            if "u" in values and values["u"]:
+                bing_u = unquote(values["u"][0]).strip()
+                decoded_url: str | None = None
+                if bing_u.startswith(("a1", "A1")) and len(bing_u) > 2:
+                    encoded = bing_u[2:]
+                    padding = "=" * ((4 - (len(encoded) % 4)) % 4)
+                    try:
+                        decoded_url = base64.urlsafe_b64decode(encoded + padding).decode("utf-8")
+                    except Exception:
+                        decoded_url = None
+                if decoded_url and decoded_url.startswith(("http://", "https://")):
+                    candidate_url = decoded_url.strip()
+                elif bing_u.startswith(("http://", "https://")):
+                    candidate_url = bing_u
+                else:
+                    skipped_missing_redirect_target += 1
+                    continue
             else:
+                skipped_missing_redirect_target += 1
                 continue
+            parsed_candidate = urlparse(candidate_url)
+            netloc = parsed_candidate.netloc.lower()
 
         if not (candidate_url.startswith("http://") or candidate_url.startswith("https://")):
+            skipped_non_http += 1
             continue
 
         if not netloc and "://" in candidate_url:
             netloc = urlparse(candidate_url).netloc.lower()
         if not candidate_url:
             continue
-        if "duckduckgo.com" in netloc:
+        if "bing.com" in netloc:
+            skipped_bing += 1
             continue
         if candidate_url in discovered_urls:
+            skipped_duplicates += 1
             continue
         discovered_urls.append(candidate_url)
         if len(discovered_urls) >= max_results:
             break
 
+    _debug_print(
+        "web_search_tool",
+        "result "
+        + f"discovered={len(discovered_urls)} "
+        + f"skipped_non_http={skipped_non_http} "
+        + f"skipped_bing={skipped_bing} "
+        + f"skipped_duplicates={skipped_duplicates} "
+        + f"skipped_missing_redirect_target={skipped_missing_redirect_target} "
+        + f"sample={discovered_urls[:3]}",
+    )
     return discovered_urls
 
 
@@ -304,6 +378,7 @@ def _build_discovery_agent() -> Agent[None, list[str]] | None:
 
     @agent.tool_plain
     def search_web(query: str) -> list[str]:
+        _debug_print("web_search_tool", f"tool_called query={query!r}")
         return _search_web(query)
 
     @agent.tool_plain

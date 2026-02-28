@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 import hashlib
 import math
+from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -120,6 +121,13 @@ def _build_query_embedding(payload: PersonalizedFeedRequest, profile: Preference
     return [round(value / norm, 6) for value in vector]
 
 
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _apply_diversity(
     candidates: list[dict[str, object]],
     *,
@@ -135,7 +143,7 @@ def _apply_diversity(
         best_adjusted = -1.0
         for idx, item in enumerate(remaining):
             category = str(item.get("category") or "")
-            base_score = float(item.get("blended_score") or 0.0)
+            base_score = _to_float(item.get("blended_score"), 0.0)
             category_repeat = category_counts.get(category, 0)
             penalty = diversity_strength * (0.15 * category_repeat)
             adjusted = max(0.0, base_score - penalty)
@@ -379,6 +387,13 @@ async def get_personalized_feed(
 
     items: list[PersonalizedFeedItem] = []
     for item in diversified:
+        next_start = item.get("next_start")
+        if not isinstance(next_start, datetime):
+            raise APIError(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                code="INVALID_PERSONALIZED_FEED_ROW",
+                message="Personalized candidate row has invalid next_start",
+            )
         reasons = [
             "Vector similarity match",
             "Recent and timely event",
@@ -397,7 +412,7 @@ async def get_personalized_feed(
                     if item.get("subcategory") is not None
                     else None
                 ),
-                datetime_start=item["next_start"],
+                datetime_start=next_start,
                 venue_name=(
                     str(item["venue_name"])
                     if item.get("venue_name") is not None
@@ -414,13 +429,13 @@ async def get_personalized_feed(
                         "currency": item.get("currency"),
                     }
                 ),
-                relevance_score=float(item["relevance_score"]),
+                relevance_score=_to_float(item.get("relevance_score"), 0.0),
                 score_breakdown=ScoreBreakdown(
-                    blended=float(item["blended_score"]),
-                    similarity=float(item["score_similarity"]),
-                    freshness=float(item["score_freshness"]),
-                    popularity=float(item["score_popularity"]),
-                    quality=float(item["score_quality"]),
+                    blended=_to_float(item.get("blended_score"), 0.0),
+                    similarity=_to_float(item.get("score_similarity"), 0.0),
+                    freshness=_to_float(item.get("score_freshness"), 0.0),
+                    popularity=_to_float(item.get("score_popularity"), 0.0),
+                    quality=_to_float(item.get("score_quality"), 0.0),
                 ),
                 reasons=reasons,
             )

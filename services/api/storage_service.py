@@ -78,7 +78,7 @@ def _vector_to_literal(values: Sequence[float]) -> str:
     return "[" + ",".join(f"{float(item):.6f}" for item in values) + "]"
 
 
-def _parse_vector_literal(raw: str | Sequence[float] | None) -> list[float]:
+def _parse_vector_literal(raw: str | list[float] | tuple[float, ...] | None) -> list[float]:
     if not raw:
         return []
     if isinstance(raw, (list, tuple)):
