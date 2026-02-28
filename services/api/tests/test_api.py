@@ -210,6 +210,49 @@ def test_feed_items_include_reasons_and_provenance(client: TestClient) -> None:
     assert first["source_provenance"]
 
 
+def test_personalized_feed_applies_hard_constraints(client: TestClient) -> None:
+    token = login_demo_user(client)
+    response = client.post(
+        "/v1/feed/personalized",
+        headers=auth_headers(token),
+        json={
+            "query_text": "late night food",
+            "categories": ["food"],
+            "max_price": 30,
+            "limit": 10,
+        },
+    )
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert items
+    assert all(item["category"] == "food" for item in items)
+    assert all((item["price"] is None) or (item["price"]["max"] <= 30) for item in items)
+
+
+def test_personalized_feed_returns_blended_scores(client: TestClient) -> None:
+    token = login_demo_user(client)
+    response = client.post(
+        "/v1/feed/personalized",
+        headers=auth_headers(token),
+        json={
+            "query_text": "jazz rooftop singapore",
+            "categories": ["events", "food", "nightlife"],
+            "diversity_strength": 0.4,
+            "limit": 3,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"]
+    first = body["items"][0]
+    assert first["score_breakdown"]["blended"] >= 0
+    assert first["score_breakdown"]["similarity"] >= 0
+    assert first["score_breakdown"]["freshness"] >= 0
+    assert first["score_breakdown"]["popularity"] >= 0
+    assert first["score_breakdown"]["quality"] >= 0
+    assert first["reasons"]
+
+
 def test_ingestion_pipeline_reaches_feed(client: TestClient) -> None:
     admin_token = login_demo_user(client, persona_seed="admin")
     admin_headers = auth_headers(admin_token)

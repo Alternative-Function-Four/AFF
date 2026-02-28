@@ -216,6 +216,43 @@ class FeedResponse(BaseModel):
     request_id: str
 
 
+class PersonalizedFeedRequest(BaseModel):
+    query_text: str | None = None
+    categories: list[str] = Field(default_factory=list)
+    subcategories: list[str] = Field(default_factory=list)
+    starts_after: datetime | None = None
+    starts_before: datetime | None = None
+    max_price: float | None = Field(default=None, ge=0)
+    limit: int = Field(default=20, ge=1, le=50)
+    diversity_strength: float = Field(default=0.2, ge=0, le=1)
+
+
+class ScoreBreakdown(BaseModel):
+    blended: float
+    similarity: float
+    freshness: float
+    popularity: float
+    quality: float
+
+
+class PersonalizedFeedItem(BaseModel):
+    event_id: UUID
+    title: str
+    category: str
+    subcategory: str | None = None
+    datetime_start: datetime
+    venue_name: str | None = None
+    price: Price | None = None
+    relevance_score: float
+    score_breakdown: ScoreBreakdown
+    reasons: list[str]
+
+
+class PersonalizedFeedResponse(BaseModel):
+    items: list[PersonalizedFeedItem]
+    request_id: str
+
+
 class EventOccurrence(BaseModel):
     datetime_start: datetime
     datetime_end: datetime | None = None

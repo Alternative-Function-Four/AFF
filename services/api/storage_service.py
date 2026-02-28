@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime
+from typing import Sequence
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import desc, delete, func, select
+from sqlalchemy import bindparam, desc, delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -66,6 +68,56 @@ def _enum_value(value: str | SourceStatus | SourceAccessMethod) -> str:
     if hasattr(value, "value"):
         return value.value  # type: ignore[return-value]
     return str(value)
+
+
+def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
+    return max(lo, min(hi, value))
+
+
+def _vector_to_literal(values: Sequence[float]) -> str:
+    return "[" + ",".join(f"{float(item):.6f}" for item in values) + "]"
+
+
+def _parse_vector_literal(raw: str | Sequence[float] | None) -> list[float]:
+    if not raw:
+        return []
+    if isinstance(raw, (list, tuple)):
+        try:
+            return [float(item) for item in raw]
+        except (TypeError, ValueError):
+            return []
+    stripped = raw.strip()
+    if not stripped.startswith("[") or not stripped.endswith("]"):
+        return []
+    body = stripped[1:-1].strip()
+    if not body:
+        return []
+    try:
+        return [float(item.strip()) for item in body.split(",")]
+    except ValueError:
+        return []
+
+
+def _cosine_similarity(vector_a: Sequence[float], vector_b: Sequence[float]) -> float:
+    if not vector_a or not vector_b:
+        return 0.0
+    dim = min(len(vector_a), len(vector_b))
+    if dim == 0:
+        return 0.0
+    a = vector_a[:dim]
+    b = vector_b[:dim]
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return _clamp(dot / (norm_a * norm_b))
+
+
+def _freshness_score(published_at: datetime | None, next_start: datetime, now: datetime) -> float:
+    anchor = published_at or next_start
+    age_days = max(0.0, (now - _as_sg_datetime(anchor)).total_seconds() / 86400.0)
+    return _clamp(math.exp(-age_days / 14.0))
 
 
 def to_user_record(row: User) -> UserRecord:
@@ -722,6 +774,135 @@ async def list_events(session_db: AsyncSession) -> list[EventRecord]:
     return [to_event_record(row) for row in rows.unique().scalars().all()]
 
 
+async def list_personalized_event_candidates(
+    session_db: AsyncSession,
+    *,
+    query_embedding: Sequence[float],
+    categories: list[str],
+    subcategories: list[str],
+    starts_after: datetime,
+    starts_before: datetime,
+    max_price: float | None,
+    limit: int,
+    candidate_limit: int = 120,
+) -> list[dict[str, Any]]:
+    now = _now_sg()
+
+    base_query = (
+        select(
+            Event.id.label("event_id"),
+            Event.title,
+            Event.category,
+            Event.subcategory,
+            Event.venue_name,
+            Event.price_min,
+            Event.price_max,
+            Event.currency,
+            Event.embedding,
+            Event.popularity_score,
+            Event.quality_score,
+            Event.published_at,
+            func.min(EventOccurrence.datetime_start).label("next_start"),
+        )
+        .join(EventOccurrence, EventOccurrence.event_id == Event.id)
+        .where(Event.deleted_at.is_(None))
+        .where(EventOccurrence.datetime_start >= starts_after)
+        .where(EventOccurrence.datetime_start <= starts_before)
+        .group_by(Event.id)
+        .order_by(func.min(EventOccurrence.datetime_start))
+        .limit(candidate_limit)
+    )
+
+    if categories:
+        base_query = base_query.where(Event.category.in_(categories))
+    if subcategories:
+        base_query = base_query.where(Event.subcategory.in_(subcategories))
+    if max_price is not None:
+        base_query = base_query.where(
+            (Event.price_max.is_(None)) | (Event.price_max <= max_price)
+        )
+
+    rows = (await session_db.execute(base_query)).mappings().all()
+    if not rows:
+        return []
+
+    event_ids = [str(row["event_id"]) for row in rows]
+    similarity_by_event: dict[str, float] = {}
+    query_vector = list(query_embedding)
+
+    dialect_name = session_db.bind.dialect.name if session_db.bind is not None else ""
+    is_postgres = dialect_name.startswith("postgres")
+
+    if is_postgres and query_vector:
+        vector_literal = _vector_to_literal(query_vector)
+        pg_similarity_stmt = (
+            text(
+                """
+                SELECT
+                    id AS event_id,
+                    GREATEST(
+                        0.0,
+                        1.0 - ((embedding::vector) <=> CAST(:query_vector AS vector))
+                    ) AS similarity
+                FROM events
+                WHERE id IN :event_ids
+                  AND deleted_at IS NULL
+                  AND embedding IS NOT NULL
+                """
+            )
+            .bindparams(bindparam("event_ids", expanding=True))
+        )
+        similarity_rows = await session_db.execute(
+            pg_similarity_stmt,
+            {
+                "event_ids": event_ids,
+                "query_vector": vector_literal,
+            },
+        )
+        for row in similarity_rows.mappings().all():
+            similarity_by_event[str(row["event_id"])] = _clamp(float(row["similarity"]))
+
+    scored: list[dict[str, Any]] = []
+    for row in rows:
+        event_id = str(row["event_id"])
+        parsed_embedding = _parse_vector_literal(row["embedding"])
+        similarity = similarity_by_event.get(
+            event_id,
+            _cosine_similarity(query_vector, parsed_embedding),
+        )
+        popularity = _clamp(float(row["popularity_score"] or 0.5))
+        quality = _clamp(float(row["quality_score"] or 0.7))
+        next_start = _as_sg_datetime(row["next_start"])
+        freshness = _freshness_score(row["published_at"], next_start, now)
+        blended = (
+            (0.55 * similarity)
+            + (0.2 * freshness)
+            + (0.15 * popularity)
+            + (0.1 * quality)
+        )
+        scored.append(
+            {
+                "event_id": event_id,
+                "title": row["title"],
+                "category": row["category"],
+                "subcategory": row["subcategory"],
+                "venue_name": row["venue_name"],
+                "price_min": row["price_min"],
+                "price_max": row["price_max"],
+                "currency": row["currency"],
+                "next_start": next_start,
+                "score_similarity": round(similarity, 4),
+                "score_freshness": round(freshness, 4),
+                "score_popularity": round(popularity, 4),
+                "score_quality": round(quality, 4),
+                "blended_score": round(_clamp(blended), 4),
+            }
+        )
+
+    scored.sort(key=lambda item: (-item["blended_score"], item["next_start"]))
+    return scored[:max(1, limit * 4)]
+
+
 async def get_event(session_db: AsyncSession, event_id: str) -> EventRecord | None:
     row = (
         await session_db.execute(
@@ -790,6 +971,9 @@ async def create_event(session_db: AsyncSession, row: EventRecord) -> EventRecor
         created_at=row.created_at or now,
         updated_at=row.updated_at or now,
         last_seen_at=row.last_seen_at or now,
+        popularity_score=0.5,
+        quality_score=0.7,
+        published_at=now,
         deleted_at=row.deleted_at,
     )
 
