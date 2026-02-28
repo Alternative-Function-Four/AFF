@@ -90,44 +90,6 @@ Common status codes:
 
 - 200 response mirrors demo-login token response
 
-### `POST /v1/auth/oauth/start`
-
-- Auth: none
-- Prototype mode: stub allowed
-- Request:
-
-```json
-{
-  "provider": "google",
-  "redirect_uri": "aff://oauth/callback"
-}
-```
-
-- 200 response:
-
-```json
-{
-  "authorization_url": "https://provider.example/oauth?...",
-  "state": "opaque-state"
-}
-```
-
-### `POST /v1/auth/oauth/callback`
-
-- Auth: none
-- Prototype mode: stub allowed
-- Request:
-
-```json
-{
-  "provider": "google",
-  "code": "oauth-code",
-  "state": "opaque-state"
-}
-```
-
-- 200 response mirrors demo-login token response
-
 ## Preferences and Interactions
 
 ### `GET /v1/preferences`

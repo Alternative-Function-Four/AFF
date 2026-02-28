@@ -65,7 +65,6 @@ Users miss relevant local activities because available information is fragmented
 
 ### Out of Scope
 
-- Real OAuth token exchange in prototype runtime.
 - Real email-password credential workflow.
 - Full human moderation console UI.
 - Multi-city support.

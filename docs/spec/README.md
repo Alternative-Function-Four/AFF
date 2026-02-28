@@ -14,7 +14,7 @@ This spec kit is the single source of truth for product scope, architecture, API
 - Source policy: API/RSS/ICS first; HTML scraping only through explicit allowlist approval
 - MVP verticals: events + food + nightlife + sports + sightseeing + museums + outdoors + movies
 - Client scope: mobile app primary + lightweight admin; web build allowed only for debugging
-- Prototype auth: demo login required; OAuth and email-password are documented but optional implementation stubs
+- Prototype auth: demo login required; email-password is a documented optional implementation stub
 - Deliverable: docs-only spec kit
 
 ## Document Map
