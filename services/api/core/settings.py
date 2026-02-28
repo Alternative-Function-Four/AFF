@@ -11,7 +11,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
     )
 
-    database_url: str = "sqlite+aiosqlite:///./aff.db"
+    database_url: str = "postgresql+asyncpg://aff:aff@postgres:5432/aff"
     source_discovery_model: str = "gpt-4o-mini"
     source_discovery_max_new_per_topic: int = 5
     source_discovery_max_new_per_domain: int = 3
@@ -30,7 +30,10 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = None
 
     def normalized_database_url(self) -> str:
-        return _normalize_database_url(self.database_url)
+        normalized = _normalize_database_url(self.database_url)
+        if not normalized.startswith("postgresql+asyncpg://"):
+            raise ValueError("database_url must target PostgreSQL via asyncpg")
+        return normalized
 
 
 def _normalize_database_url(value: str) -> str:
@@ -38,8 +41,6 @@ def _normalize_database_url(value: str) -> str:
         return "postgresql+asyncpg://" + value[len("postgres://") :]
     if value.startswith("postgresql://"):
         return "postgresql+asyncpg://" + value[len("postgresql://") :]
-    if value.startswith("sqlite:///"):
-        return "sqlite+aiosqlite:///" + value[len("sqlite:///") :]
     return value
 
 

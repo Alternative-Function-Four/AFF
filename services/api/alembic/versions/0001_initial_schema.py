@@ -1,6 +1,7 @@
 """Initial schema."""
 
 from alembic import op
+from pgvector.sqlalchemy import Vector
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
@@ -11,6 +12,8 @@ depends_on = None
 
 
 def upgrade() -> None:
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
     op.create_table(
         "users",
         sa.Column("id", sa.String(length=36), primary_key=True),
@@ -105,7 +108,7 @@ def upgrade() -> None:
         sa.Column("price_min", sa.Float(), nullable=True),
         sa.Column("price_max", sa.Float(), nullable=True),
         sa.Column("currency", sa.String(length=8), nullable=False, server_default="SGD"),
-        sa.Column("embedding", sa.JSON(), nullable=True),
+        sa.Column("embedding", Vector(256), nullable=True),
         sa.Column("content_hash", sa.String(length=64), nullable=False),
         sa.Column("status", sa.String(length=16), nullable=False, server_default="active"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),

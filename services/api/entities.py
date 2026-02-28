@@ -161,9 +161,7 @@ class Event(Base):
     price_min: Mapped[float | None] = mapped_column(Float)
     price_max: Mapped[float | None] = mapped_column(Float)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="SGD")
-    embedding: Mapped[list[float] | None] = mapped_column(
-        Vector(256).with_variant(JSON(), "sqlite"),  # type: ignore[call-overload]
-    )
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(256))  # type: ignore[call-overload]
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
