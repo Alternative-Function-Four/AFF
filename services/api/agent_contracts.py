@@ -1,28 +1,178 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from enum import Enum
 import re
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from models import CandidateEventForDedup, FlexibleObject, SimilarEventCandidate
 
 SG_TZ = ZoneInfo("Asia/Singapore")
 
 
-def _meta(agent: str, run_id: str | None) -> dict[str, str]:
-    return {
-        "agent": agent,
-        "version": "v1",
-        "run_id": run_id or str(uuid4()),
-    }
+class DictLikeModel(BaseModel):
+    def as_dict(self) -> dict[str, Any]:
+        return self.model_dump(mode="python")
+
+    def __getitem__(self, key: str) -> Any:
+        return self.as_dict()[key]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.as_dict().get(key, default)
+
+    def keys(self):  # type: ignore[no-untyped-def]
+        return self.as_dict().keys()
+
+    def items(self):  # type: ignore[no-untyped-def]
+        return self.as_dict().items()
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        return iter(self.as_dict())
+
+    def __len__(self) -> int:
+        return len(self.as_dict())
 
 
-def ok_envelope(agent: str, data: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
-    return {
-        "status": "ok",
-        "data": data,
-        "meta": _meta(agent=agent, run_id=run_id),
-    }
+class AgentMeta(DictLikeModel):
+    agent: str
+    version: str = "v1"
+    run_id: str
+
+
+class AgentErrorPayload(DictLikeModel):
+    code: str
+    message: str
+    retryable: bool
+    details: FlexibleObject = Field(default_factory=FlexibleObject)
+
+
+class AgentOkEnvelope(DictLikeModel):
+    status: Literal["ok"] = "ok"
+    data: FlexibleObject
+    meta: AgentMeta
+
+
+class AgentErrorEnvelope(DictLikeModel):
+    status: Literal["error"] = "error"
+    error: AgentErrorPayload
+    meta: AgentMeta
+
+
+class MergeAction(str, Enum):
+    skip = "skip"
+    merge_sources = "merge_sources"
+    create_new = "create_new"
+
+
+class NormalizedEvent(BaseModel):
+    title: str
+    category: str
+    subcategory: str | None = None
+    datetime_start: str
+    datetime_end: str
+    is_recurring: bool
+    recurrence_rule: str | None = None
+    venue_name: str | None = None
+    venue_address: str | None = None
+    venue_lat: float | None = None
+    venue_lng: float | None = None
+    price_min: float | None = None
+    price_max: float | None = None
+    currency: str | None = None
+    description: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    source_url: str | None = None
+    confidence_score: float
+    parsing_notes: str | None = None
+
+
+class DedupDecision(BaseModel):
+    is_duplicate: bool
+    duplicate_of_id: str | None = None
+    merge_action: MergeAction
+    confidence: float
+    reasoning: str
+    requires_manual_review: bool
+
+
+class RawEventInput(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    raw_title: str | None = None
+    raw_date_or_schedule: str | None = None
+    raw_location: str | None = None
+    raw_description: str | None = None
+    raw_price: str | None = None
+    raw_url: str | None = None
+
+
+class NormalizeEventPayload(BaseModel):
+    raw_event: RawEventInput
+    city_context: str = "Singapore"
+
+
+class DeduplicatePayload(BaseModel):
+    candidate_event: CandidateEventForDedup
+    similar_events: list[SimilarEventCandidate]
+
+
+class SourceHunterPayload(BaseModel):
+    city: str
+    categories: list[str]
+
+
+class IngestionPayload(BaseModel):
+    raw_events: list[RawEventInput]
+
+
+class RecommendationCandidate(BaseModel):
+    event_id: str | None = None
+    category: str | None = None
+
+
+class RecommendationPayload(BaseModel):
+    candidate_events: list[RecommendationCandidate]
+    profile: FlexibleObject | None = None
+
+
+class NotificationEventPayload(BaseModel):
+    event_id: str | None = None
+    title: str | None = None
+
+
+class NotificationComposerPayload(BaseModel):
+    event: NotificationEventPayload
+    notify_reason: str
+
+
+class PreferenceHistoryItem(BaseModel):
+    category: str | None = None
+    signal: str | None = None
+
+
+class ExplicitPreferences(BaseModel):
+    categories: list[str] = Field(default_factory=list)
+    budget_mode: str = "moderate"
+    time_preferences: list[str] = Field(default_factory=lambda: ["evening"])
+
+
+class PreferenceProfilerPayload(BaseModel):
+    explicit_preferences: ExplicitPreferences
+    interaction_history: list[PreferenceHistoryItem] = Field(default_factory=list)
+
+
+def _meta(agent: str, run_id: str | None) -> AgentMeta:
+    return AgentMeta(agent=agent, run_id=run_id or str(uuid4()))
+
+
+def ok_envelope(agent: str, data: BaseModel, run_id: str | None = None) -> AgentOkEnvelope:
+    return AgentOkEnvelope(
+        data=FlexibleObject.model_validate(data.model_dump(mode="python")),
+        meta=_meta(agent=agent, run_id=run_id),
+    )
 
 
 def error_envelope(
@@ -30,19 +180,18 @@ def error_envelope(
     code: str,
     message: str,
     retryable: bool,
-    details: dict[str, Any] | None = None,
+    details: FlexibleObject | None = None,
     run_id: str | None = None,
-) -> dict[str, Any]:
-    return {
-        "status": "error",
-        "error": {
-            "code": code,
-            "message": message,
-            "retryable": retryable,
-            "details": details or {},
-        },
-        "meta": _meta(agent=agent, run_id=run_id),
-    }
+) -> AgentErrorEnvelope:
+    return AgentErrorEnvelope(
+        error=AgentErrorPayload(
+            code=code,
+            message=message,
+            retryable=retryable,
+            details=details or FlexibleObject(),
+        ),
+        meta=_meta(agent=agent, run_id=run_id),
+    )
 
 
 def _parse_datetime(raw_value: str | None, now: datetime) -> tuple[datetime, str | None, float]:
@@ -105,37 +254,39 @@ def _parse_price(raw_price: str | None) -> tuple[float | None, float | None]:
     return min(numbers), max(numbers)
 
 
-def normalize_event_agent(payload: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
+def normalize_event_agent(
+    payload: NormalizeEventPayload | dict[str, Any],
+    run_id: str | None = None,
+) -> AgentOkEnvelope | AgentErrorEnvelope:
     agent = "EventNormalizerAgent"
-    if "raw_event" not in payload or not isinstance(payload["raw_event"], dict):
+    try:
+        model_payload = payload if isinstance(payload, NormalizeEventPayload) else NormalizeEventPayload.model_validate(payload)
+    except ValidationError:
         return error_envelope(
             agent=agent,
             code="INVALID_INPUT_ENVELOPE",
             message="Missing raw_event object",
             retryable=False,
-            details={"required": ["raw_event", "city_context"]},
+            details=FlexibleObject.model_validate({"required": ["raw_event", "city_context"]}),
             run_id=run_id,
         )
 
-    raw = payload["raw_event"]
-    city_context = str(payload.get("city_context", "Singapore"))
+    raw = model_payload.raw_event
+    city_context = model_payload.city_context
     now = datetime.now(SG_TZ)
 
-    title = (raw.get("raw_title") or "").strip()
-    if not title:
-        title = "Untitled activity"
+    title = (raw.raw_title or "").strip() or "Untitled activity"
+    datetime_start, date_note, date_penalty = _parse_datetime(raw.raw_date_or_schedule, now)
 
-    datetime_start, date_note, date_penalty = _parse_datetime(raw.get("raw_date_or_schedule"), now)
-
-    description = raw.get("raw_description")
-    location = (raw.get("raw_location") or "").strip() or None
-    source_url = raw.get("raw_url")
-    price_min, price_max = _parse_price(raw.get("raw_price"))
+    description = raw.raw_description
+    location = (raw.raw_location or "").strip() or None
+    source_url = raw.raw_url
+    price_min, price_max = _parse_price(raw.raw_price)
 
     confidence = 0.95
     parsing_notes: list[str] = []
 
-    if raw.get("raw_title") in (None, ""):
+    if raw.raw_title in (None, ""):
         confidence -= 0.35
         parsing_notes.append("Missing title; used placeholder title.")
     if date_note:
@@ -151,238 +302,281 @@ def normalize_event_agent(payload: dict[str, Any], run_id: str | None = None) ->
     confidence = round(max(0.0, min(confidence, 1.0)), 3)
     parsing_note_text = " | ".join(parsing_notes) if parsing_notes else None
 
-    normalized_event = {
-        "title": title,
-        "category": _infer_category(f"{title} {description or ''}"),
-        "subcategory": None,
-        "datetime_start": datetime_start.isoformat(),
-        "datetime_end": (datetime_start + timedelta(hours=2)).isoformat(),
-        "is_recurring": False,
-        "recurrence_rule": None,
-        "venue_name": location,
-        "venue_address": location,
-        "venue_lat": 1.29 if city_context.lower() == "singapore" else None,
-        "venue_lng": 103.85 if city_context.lower() == "singapore" else None,
-        "price_min": price_min,
-        "price_max": price_max,
-        "currency": "SGD" if (price_min is not None or price_max is not None) else None,
-        "description": description,
-        "tags": [],
-        "source_url": source_url,
-        "confidence_score": confidence,
-        "parsing_notes": parsing_note_text,
-    }
+    normalized_event = NormalizedEvent(
+        title=title,
+        category=_infer_category(f"{title} {description or ''}"),
+        datetime_start=datetime_start.isoformat(),
+        datetime_end=(datetime_start + timedelta(hours=2)).isoformat(),
+        is_recurring=False,
+        recurrence_rule=None,
+        venue_name=location,
+        venue_address=location,
+        venue_lat=1.29 if city_context.lower() == "singapore" else None,
+        venue_lng=103.85 if city_context.lower() == "singapore" else None,
+        price_min=price_min,
+        price_max=price_max,
+        currency="SGD" if (price_min is not None or price_max is not None) else None,
+        description=description,
+        tags=[],
+        source_url=source_url,
+        confidence_score=confidence,
+        parsing_notes=parsing_note_text,
+    )
+    return ok_envelope(
+        agent=agent,
+        data=FlexibleObject.model_validate({"normalized_event": normalized_event.model_dump(mode="python")}),
+        run_id=run_id,
+    )
 
-    return ok_envelope(agent=agent, data={"normalized_event": normalized_event}, run_id=run_id)
 
-
-def deduplicate_event_agent(payload: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
+def deduplicate_event_agent(
+    payload: DeduplicatePayload | dict[str, Any],
+    run_id: str | None = None,
+) -> AgentOkEnvelope | AgentErrorEnvelope:
     agent = "DeduplicationAgent"
-    candidate_event = payload.get("candidate_event")
-    similar_events = payload.get("similar_events")
-
-    if not isinstance(candidate_event, dict) or not isinstance(similar_events, list):
+    try:
+        model_payload = payload if isinstance(payload, DeduplicatePayload) else DeduplicatePayload.model_validate(payload)
+    except ValidationError:
         return error_envelope(
             agent=agent,
             code="INVALID_INPUT_ENVELOPE",
             message="candidate_event and similar_events are required",
             retryable=False,
-            details={"required": ["candidate_event", "similar_events"]},
+            details=FlexibleObject.model_validate({"required": ["candidate_event", "similar_events"]}),
             run_id=run_id,
         )
 
-    if not similar_events:
-        decision = {
-            "is_duplicate": False,
-            "duplicate_of_id": None,
-            "merge_action": "create_new",
-            "confidence": 0.82,
-            "reasoning": "No sufficiently similar existing events.",
-            "requires_manual_review": False,
-        }
-        return ok_envelope(agent=agent, data=decision, run_id=run_id)
+    similar_events = model_payload.similar_events
 
-    best = max(similar_events, key=lambda item: float(item.get("similarity_score", 0.0)))
-    similarity = round(float(best.get("similarity_score", 0.0)), 3)
+    if not similar_events:
+        return ok_envelope(
+            agent=agent,
+            data=FlexibleObject.model_validate(
+                {
+                    "is_duplicate": False,
+                    "duplicate_of_id": None,
+                    "merge_action": MergeAction.create_new.value,
+                    "confidence": 0.82,
+                    "reasoning": "No sufficiently similar existing events.",
+                    "requires_manual_review": False,
+                }
+            ),
+            run_id=run_id,
+        )
+
+    best = max(similar_events, key=lambda item: item.similarity_score)
+    similarity = round(best.similarity_score, 3)
 
     if similarity >= 0.92:
-        merge_action = "skip"
+        merge_action = MergeAction.skip
         is_duplicate = True
         confidence = similarity
         reasoning = "Near-identical event fingerprint detected."
     elif similarity >= 0.75:
-        merge_action = "merge_sources"
+        merge_action = MergeAction.merge_sources
         is_duplicate = True
         confidence = round(similarity - 0.03, 3)
         reasoning = "Substantial overlap with existing event; merge provenance."
     else:
-        merge_action = "create_new"
+        merge_action = MergeAction.create_new
         is_duplicate = False
         confidence = round(max(0.52, similarity + 0.05), 3)
         reasoning = "Similarity is weak; create a new canonical event."
 
-    requires_manual_review = confidence < 0.65
-    decision = {
-        "is_duplicate": is_duplicate,
-        "duplicate_of_id": best.get("event_id") if is_duplicate else None,
-        "merge_action": merge_action,
-        "confidence": confidence,
-        "reasoning": reasoning,
-        "requires_manual_review": requires_manual_review,
-    }
-    return ok_envelope(agent=agent, data=decision, run_id=run_id)
+    decision = DedupDecision(
+        is_duplicate=is_duplicate,
+        duplicate_of_id=best.event_id if is_duplicate else None,
+        merge_action=merge_action,
+        confidence=confidence,
+        reasoning=reasoning,
+        requires_manual_review=confidence < 0.65,
+    )
+    return ok_envelope(agent=agent, data=FlexibleObject.model_validate(decision.model_dump(mode="python")), run_id=run_id)
 
 
-def source_hunter_agent(payload: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
+def source_hunter_agent(
+    payload: SourceHunterPayload | dict[str, Any],
+    run_id: str | None = None,
+) -> AgentOkEnvelope | AgentErrorEnvelope:
     agent = "SourceHunterAgent"
-    city = payload.get("city")
-    categories = payload.get("categories")
-    if not isinstance(city, str) or not isinstance(categories, list):
+    try:
+        model_payload = payload if isinstance(payload, SourceHunterPayload) else SourceHunterPayload.model_validate(payload)
+    except ValidationError:
         return error_envelope(
             agent=agent,
             code="INVALID_INPUT_ENVELOPE",
             message="city and categories are required",
             retryable=False,
-            details={"required": ["city", "categories"]},
+            details=FlexibleObject.model_validate({"required": ["city", "categories"]}),
             run_id=run_id,
         )
 
-    sources = []
-    for category in categories:
+    sources: list[FlexibleObject] = []
+    for category in model_payload.categories:
         slug = str(category).replace("_", "-")
         sources.append(
-            {
-                "name": f"{city} {category} source",
-                "url": f"https://{slug}.example.sg/feed",
-                "source_type": "local_blog",
-                "access_method": "rss",
-                "update_frequency_estimate": "daily",
-                "reliability_score": 70,
-                "policy_risk_score": 20,
-            }
+            FlexibleObject.model_validate(
+                {
+                    "name": f"{model_payload.city} {category} source",
+                    "url": f"https://{slug}.example.sg/feed",
+                    "source_type": "local_blog",
+                    "access_method": "rss",
+                    "update_frequency_estimate": "daily",
+                    "reliability_score": 70,
+                    "policy_risk_score": 20,
+                }
+            )
         )
 
-    return ok_envelope(agent=agent, data={"sources": sources}, run_id=run_id)
+    return ok_envelope(
+        agent=agent,
+        data=FlexibleObject.model_validate({"sources": [source.model_dump(mode="python") for source in sources]}),
+        run_id=run_id,
+    )
 
 
-def ingestion_agent(payload: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
+def ingestion_agent(
+    payload: IngestionPayload | dict[str, Any],
+    run_id: str | None = None,
+) -> AgentOkEnvelope | AgentErrorEnvelope:
     agent = "IngestionAgent"
-    raw_events = payload.get("raw_events")
-    if not isinstance(raw_events, list):
+    try:
+        model_payload = payload if isinstance(payload, IngestionPayload) else IngestionPayload.model_validate(payload)
+    except ValidationError:
         return error_envelope(
             agent=agent,
             code="INVALID_INPUT_ENVELOPE",
             message="raw_events list is required",
             retryable=False,
-            details={"required": ["raw_events"]},
+            details=FlexibleObject.model_validate({"required": ["raw_events"]}),
             run_id=run_id,
         )
 
-    processed = len(raw_events)
-    parseable = sum(1 for event in raw_events if bool(event.get("raw_title")))
+    processed = len(model_payload.raw_events)
+    parseable = sum(1 for event in model_payload.raw_events if bool(event.raw_title))
     return ok_envelope(
         agent=agent,
-        data={
-            "processed_count": processed,
-            "parseable_count": parseable,
-            "failed_count": processed - parseable,
-        },
+        data=FlexibleObject.model_validate(
+            {
+                "processed_count": processed,
+                "parseable_count": parseable,
+                "failed_count": processed - parseable,
+            }
+        ),
         run_id=run_id,
     )
 
 
-def recommendation_agent(payload: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
+def recommendation_agent(
+    payload: RecommendationPayload | dict[str, Any],
+    run_id: str | None = None,
+) -> AgentOkEnvelope | AgentErrorEnvelope:
     agent = "RecommendationAgent"
-    candidate_events = payload.get("candidate_events")
-    profile = payload.get("profile")
-    if not isinstance(candidate_events, list):
+    try:
+        model_payload = payload if isinstance(payload, RecommendationPayload) else RecommendationPayload.model_validate(payload)
+    except ValidationError:
         return error_envelope(
             agent=agent,
             code="INVALID_INPUT_ENVELOPE",
             message="candidate_events list is required",
             retryable=False,
-            details={"required": ["candidate_events"]},
+            details=FlexibleObject.model_validate({"required": ["candidate_events"]}),
             run_id=run_id,
         )
-    if not isinstance(profile, dict):
+
+    if model_payload.profile is None:
         return error_envelope(
             agent=agent,
             code="PROFILE_NOT_FOUND",
             message="profile is required",
             retryable=True,
-            details={},
+            details=FlexibleObject(),
             run_id=run_id,
         )
 
-    preferred_categories = set(profile.get("preferred_categories", []))
-    ranked = []
-    for event in candidate_events:
-        event_id = event.get("event_id")
-        category = event.get("category")
-        score = 0.6 + (0.3 if category in preferred_categories else 0.0)
+    profile_data = model_payload.profile.model_dump(mode="python")
+    preferred_categories = set(profile_data.get("preferred_categories", []))
+    ranked: list[FlexibleObject] = []
+    for event in model_payload.candidate_events:
+        score = 0.6 + (0.3 if event.category in preferred_categories else 0.0)
         ranked.append(
-            {
-                "event_id": event_id,
-                "relevance_score": round(min(score, 0.98), 3),
-                "personal_pitch": "Matched to your profile",
-                "reasons": [f"category:{category}"],
-                "notify_immediately": score > 0.85,
-                "notify_reason": "high_relevance" if score > 0.85 else "normal",
-            }
+            FlexibleObject.model_validate(
+                {
+                    "event_id": event.event_id,
+                    "relevance_score": round(min(score, 0.98), 3),
+                    "personal_pitch": "Matched to your profile",
+                    "reasons": [f"category:{event.category}"],
+                    "notify_immediately": score > 0.85,
+                    "notify_reason": "high_relevance" if score > 0.85 else "normal",
+                }
+            )
         )
-    ranked.sort(key=lambda item: item["relevance_score"], reverse=True)
-    return ok_envelope(agent=agent, data={"ranked": ranked}, run_id=run_id)
+
+    ranked.sort(key=lambda item: float(item.model_dump(mode="python")["relevance_score"]), reverse=True)
+    return ok_envelope(
+        agent=agent,
+        data=FlexibleObject.model_validate({"ranked": [item.model_dump(mode="python") for item in ranked]}),
+        run_id=run_id,
+    )
 
 
-def notification_composer_agent(payload: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
+def notification_composer_agent(
+    payload: NotificationComposerPayload | dict[str, Any],
+    run_id: str | None = None,
+) -> AgentOkEnvelope | AgentErrorEnvelope:
     agent = "NotificationComposerAgent"
-    event = payload.get("event")
-    reason = payload.get("notify_reason")
-    if not isinstance(event, dict) or not isinstance(reason, str):
+    try:
+        model_payload = payload if isinstance(payload, NotificationComposerPayload) else NotificationComposerPayload.model_validate(payload)
+    except ValidationError:
         return error_envelope(
             agent=agent,
             code="INVALID_INPUT_ENVELOPE",
             message="event and notify_reason are required",
             retryable=False,
-            details={"required": ["event", "notify_reason"]},
+            details=FlexibleObject.model_validate({"required": ["event", "notify_reason"]}),
             run_id=run_id,
         )
 
-    event_id = event.get("event_id", "")
-    title = str(event.get("title", "AFF Alert"))[:100]
-    body = str(reason)[:200]
+    event_id = model_payload.event.event_id or ""
+    title = str(model_payload.event.title or "AFF Alert")[:100]
+    body = str(model_payload.notify_reason)[:200]
     return ok_envelope(
         agent=agent,
-        data={
-            "title": title,
-            "body": body,
-            "deep_link": f"aff://events/{event_id}",
-            "priority": "high",
-        },
+        data=FlexibleObject.model_validate(
+            {
+                "title": title,
+                "body": body,
+                "deep_link": f"aff://events/{event_id}",
+                "priority": "high",
+            }
+        ),
         run_id=run_id,
     )
 
 
-def preference_profiler_agent(payload: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
+def preference_profiler_agent(
+    payload: PreferenceProfilerPayload | dict[str, Any],
+    run_id: str | None = None,
+) -> AgentOkEnvelope | AgentErrorEnvelope:
     agent = "PreferenceProfilerAgent"
-    explicit = payload.get("explicit_preferences")
-    history = payload.get("interaction_history", [])
-    if not isinstance(explicit, dict) or not isinstance(history, list):
+    try:
+        model_payload = payload if isinstance(payload, PreferenceProfilerPayload) else PreferenceProfilerPayload.model_validate(payload)
+    except ValidationError:
         return error_envelope(
             agent=agent,
             code="INVALID_INPUT_ENVELOPE",
             message="explicit_preferences and interaction_history are required",
             retryable=False,
-            details={"required": ["explicit_preferences", "interaction_history"]},
+            details=FlexibleObject.model_validate({"required": ["explicit_preferences", "interaction_history"]}),
             run_id=run_id,
         )
 
-    categories = list(explicit.get("categories", []))
+    categories = list(model_payload.explicit_preferences.categories)
     boosts: dict[str, int] = {}
     penalties: dict[str, int] = {}
-    for item in history:
-        category = str(item.get("category", "other"))
-        signal = item.get("signal")
+    for item in model_payload.interaction_history:
+        category = str(item.category or "other")
+        signal = item.signal
         if signal == "interested":
             boosts[category] = boosts.get(category, 0) + 1
         if signal == "not_for_me":
@@ -393,14 +587,20 @@ def preference_profiler_agent(payload: dict[str, Any], run_id: str | None = None
         key=lambda category: boosts.get(category, 0) - penalties.get(category, 0),
         reverse=True,
     )
-    profile = {
-        "preferred_categories": ranked_categories or categories,
-        "preferred_subcategories": [],
-        "price_sensitivity": explicit.get("budget_mode", "moderate"),
-        "preferred_distance_km": 8,
-        "active_days": "both",
-        "preferred_times": list(explicit.get("time_preferences", ["evening"])),
-        "taste_descriptors": ["adaptive profile"],
-        "anti_preferences": [cat for cat, value in penalties.items() if value > 0],
-    }
-    return ok_envelope(agent=agent, data={"profile": profile}, run_id=run_id)
+    profile = FlexibleObject.model_validate(
+        {
+            "preferred_categories": ranked_categories or categories,
+            "preferred_subcategories": [],
+            "price_sensitivity": model_payload.explicit_preferences.budget_mode,
+            "preferred_distance_km": 8,
+            "active_days": "both",
+            "preferred_times": list(model_payload.explicit_preferences.time_preferences),
+            "taste_descriptors": ["adaptive profile"],
+            "anti_preferences": [cat for cat, value in penalties.items() if value > 0],
+        }
+    )
+    return ok_envelope(
+        agent=agent,
+        data=FlexibleObject.model_validate({"profile": profile.model_dump(mode="python")}),
+        run_id=run_id,
+    )

@@ -8,8 +8,8 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from logic import make_request_id, now_sg
-from models import ErrorEnvelope, UserRecord
+from core import make_request_id, now_sg
+from models import ErrorEnvelope, FlexibleObject, UserRecord
 from state import STORE
 
 
@@ -19,13 +19,18 @@ class APIError(Exception):
         status_code: int,
         code: str,
         message: str,
-        details: dict[str, Any] | None = None,
+        details: FlexibleObject | dict[str, object] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
-        self.details = details or {}
+        if details is None:
+            self.details = FlexibleObject()
+        elif isinstance(details, FlexibleObject):
+            self.details = details
+        else:
+            self.details = FlexibleObject.model_validate(details)
 
 
 bearer = HTTPBearer(auto_error=False)
@@ -45,12 +50,13 @@ def error_response(
     status_code: int,
     code: str,
     message: str,
-    details: dict[str, Any],
+    details: FlexibleObject | dict[str, Any],
 ) -> JSONResponse:
+    details_model = details if isinstance(details, FlexibleObject) else FlexibleObject.model_validate(details)
     payload = ErrorEnvelope(
         code=code,
         message=message,
-        details=details,
+        details=details_model,
         request_id=request_id_for(request),
     )
     return JSONResponse(status_code=status_code, content=payload.model_dump(mode="json"))

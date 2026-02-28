@@ -4,7 +4,7 @@ from datetime import timedelta
 from uuid import UUID
 from uuid import uuid4
 
-from logic import make_ingestion_metrics, now_sg
+from core import make_ingestion_metrics, now_sg
 from models import (
     EventOccurrence,
     EventRecord,

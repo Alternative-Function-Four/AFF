@@ -11,6 +11,40 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 from constants import SG_TZ
 
 
+class DictLikeModel(BaseModel):
+    def as_dict(self) -> dict[str, Any]:
+        return self.model_dump(mode="python")
+
+    def __getitem__(self, key: str) -> Any:
+        return self.as_dict()[key]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.as_dict().get(key, default)
+
+    def keys(self):  # type: ignore[no-untyped-def]
+        return self.as_dict().keys()
+
+    def items(self):  # type: ignore[no-untyped-def]
+        return self.as_dict().items()
+
+    def values(self):  # type: ignore[no-untyped-def]
+        return self.as_dict().values()
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        return iter(self.as_dict())
+
+    def __len__(self) -> int:
+        return len(self.as_dict())
+
+    def __contains__(self, key: object) -> bool:
+        return key in self.as_dict()
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, dict):
+            return self.as_dict() == other
+        return super().__eq__(other)
+
+
 class BudgetMode(str, Enum):
     budget = "budget"
     moderate = "moderate"
@@ -93,10 +127,14 @@ class NotificationStatus(str, Enum):
     failed = "failed"
 
 
+class FlexibleObject(DictLikeModel):
+    model_config = ConfigDict(extra="allow")
+
+
 class ErrorEnvelope(BaseModel):
     code: str
     message: str
-    details: dict[str, Any]
+    details: FlexibleObject
     request_id: str
 
 
@@ -140,7 +178,7 @@ class PreferenceProfile(PreferenceProfileInput):
 class InteractionCreateRequest(BaseModel):
     event_id: UUID
     signal: InteractionSignal
-    context: dict[str, Any]
+    context: FlexibleObject
 
 
 class CreatedResponse(BaseModel):
@@ -198,7 +236,7 @@ class EventDetail(BaseModel):
 
 class EventFeedbackRequest(BaseModel):
     signal: FeedbackSignal
-    context: dict[str, Any]
+    context: FlexibleObject
 
 
 class NotificationLog(BaseModel):
@@ -272,6 +310,53 @@ class IngestionRunResponse(BaseModel):
     queued_count: int
 
 
+class DedupMergeActionMetrics(DictLikeModel):
+    skip: int = 0
+    merge_sources: int = 0
+    create_new: int = 0
+
+
+class IngestionMetrics(DictLikeModel):
+    normalization_low_confidence_total: int = 0
+    dedup_merge_action_total: DedupMergeActionMetrics = Field(default_factory=DedupMergeActionMetrics)
+    source_parse_failures_total: int = 0
+
+
+class IngestionLogRecord(DictLikeModel):
+    timestamp: str
+    level: str
+    service: str
+    run_id: str
+    user_id: str | None = None
+    source_id: str | None = None
+    event_id: str | None = None
+    message: str
+    payload: FlexibleObject
+
+
+class IngestionJobRecord(DictLikeModel):
+    job_id: str
+    source_ids: list[str]
+    reason: str
+    queued_at: str
+    run_id: str
+    created_events: int
+    merge_actions: list[str]
+
+
+class CandidateEventForDedup(DictLikeModel):
+    title: str | None = None
+    datetime_start: str | None = None
+
+
+class SimilarEventCandidate(DictLikeModel):
+    event_id: str
+    title: str
+    datetime_start: str
+    venue_name: str | None = None
+    similarity_score: float
+
+
 @dataclass
 class UserRecord:
     id: str
@@ -294,7 +379,7 @@ class InteractionRecord:
     user_id: str
     event_id: str
     signal: str
-    context: dict[str, Any]
+    context: FlexibleObject
     created_at: datetime
 
 
@@ -369,7 +454,7 @@ class InMemoryStore:
     event_source_links: list[EventSourceLinkRecord] = field(default_factory=list)
     recommendations: list[RecommendationRecord] = field(default_factory=list)
     notification_logs: list[tuple[str, NotificationLog]] = field(default_factory=list)
-    ingestion_jobs: list[dict[str, Any]] = field(default_factory=list)
-    ingestion_metrics: dict[str, Any] = field(default_factory=dict)
-    ingestion_logs: list[dict[str, Any]] = field(default_factory=list)
+    ingestion_jobs: list[IngestionJobRecord] = field(default_factory=list)
+    ingestion_metrics: IngestionMetrics = field(default_factory=IngestionMetrics)
+    ingestion_logs: list[IngestionLogRecord] = field(default_factory=list)
     now_provider: Callable[[], datetime] = lambda: datetime.now(SG_TZ)

@@ -7,14 +7,13 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, Query, Request, status
 
 from constants import MAX_NOTIFICATIONS_PER_DAY, TOKEN_TTL_HOURS
+from core import is_quiet_hours, now_sg
 from dependencies import APIError, get_current_user, request_id_for
 from logic import (
     build_feed_score,
     default_preference_profile,
     event_matches_window,
-    is_quiet_hours,
     notifications_count_today,
-    now_sg,
 )
 from models import (
     AuthSessionResponse,
