@@ -238,6 +238,7 @@ class Source(BaseModel):
     crawl_frequency_minutes: int = Field(ge=15)
     terms_url: str | None = None
     notes: str | None = None
+    deleted_at: datetime | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -309,6 +310,7 @@ class EventRecord:
     occurrences: list[EventOccurrence]
     price: Price | None
     source_provenance: list[SourceProvenance]
+    deleted_at: datetime | None = None
 
 
 @dataclass
@@ -325,6 +327,7 @@ class RawEventRecord:
     raw_url: str | None
     raw_media_url: str | None
     captured_at: datetime
+    deleted_at: datetime | None = None
 
 
 @dataclass

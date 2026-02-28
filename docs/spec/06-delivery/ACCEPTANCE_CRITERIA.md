@@ -6,7 +6,7 @@ All items are pass/fail for prototype sign-off.
 
 - [x] No unresolved placeholders (`TBD`, `TODO`, `FIXME`, `???`) in `docs/spec`.
 - [x] Every endpoint listed in `API_CONTRACT.md` exists in `OPENAPI.yaml`.
-- [ ] Every endpoint defines auth mode, request schema, response schema, and example.
+- [x] Every endpoint defines auth mode, request schema, response schema, and example.
 - [x] Error envelope shape is consistent across all documented error responses.
 
 ## 2. Data and Lineage
@@ -14,7 +14,7 @@ All items are pass/fail for prototype sign-off.
 - [x] Canonical event creation always links to at least one raw event source record.
 - [x] Lineage from source to recommendation can be traced using DB records.
 - [x] Source unique URL constraint is enforced.
-- [ ] Soft-delete fields are present on mutable source/event tables.
+- [x] Soft-delete fields are present on mutable source/event tables.
 
 ## 3. Functional Behavior
 
