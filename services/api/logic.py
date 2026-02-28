@@ -112,10 +112,15 @@ def notifications_count_today(store: InMemoryStore, user_id: str, now: datetime)
 
 def build_similar_events(
     store: InMemoryStore,
-    candidate_event: CandidateEventForDedup,
+    candidate_event: CandidateEventForDedup | dict[str, object],
 ) -> list[SimilarEventCandidate]:
-    title = str(candidate_event.title or "").lower()
-    candidate_start = candidate_event.datetime_start
+    candidate = (
+        candidate_event
+        if isinstance(candidate_event, CandidateEventForDedup)
+        else CandidateEventForDedup.model_validate(candidate_event)
+    )
+    title = str(candidate.title or "").lower()
+    candidate_start = candidate.datetime_start
     similar_events: list[SimilarEventCandidate] = []
 
     for event in store.events.values():

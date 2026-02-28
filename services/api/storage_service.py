@@ -80,7 +80,11 @@ def to_user_record(row: User) -> UserRecord:
 
 
 def to_session_record(row: Session) -> SessionRecord:
-    return SessionRecord(token=row.token, user_id=row.user_id, expires_at=row.expires_at)
+    return SessionRecord(
+        token=row.token,
+        user_id=row.user_id,
+        expires_at=_as_sg_datetime(row.expires_at),
+    )
 
 
 def _to_price(row: Event) -> Price | None:
