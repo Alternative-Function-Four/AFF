@@ -6,6 +6,7 @@
     "moduleResolution": "bundler",
     "noUncheckedIndexedAccess": true,
     "types": [
+      "node",
       "react",
       "react-native"
     ]
