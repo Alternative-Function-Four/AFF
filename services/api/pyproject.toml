@@ -10,3 +10,13 @@ dependencies = [
   "psycopg2-binary",
   "sqlalchemy",
 ]
+
+[dependency-groups]
+dev = [
+  "ruff",
+  "pyrefly",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
