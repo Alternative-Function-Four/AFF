@@ -23,6 +23,8 @@ from models import (
     SourceApprovalDecision,
     SourceApprovalRequest,
     SourceCreateRequest,
+    SourceDiscoveryRunRequest,
+    SourceDiscoveryRunResponse,
     SourceListResponse,
     SourceProvenance,
     SourceStatus,
@@ -42,6 +44,7 @@ from storage_service import (
     save_source,
     source_exists_with_url,
 )
+from source_discovery import run_source_discovery
 
 router = APIRouter()
 
@@ -377,3 +380,23 @@ async def post_admin_ingestion_run(
     await refresh_store_from_db(db)
 
     return IngestionRunResponse(job_id=job_id, queued_count=len(payload.source_ids))
+
+
+@router.post(
+    "/v1/admin/source-discovery/run",
+    response_model=SourceDiscoveryRunResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def post_admin_source_discovery_run(
+    payload: SourceDiscoveryRunRequest,
+    db: AsyncSession = Depends(get_db_session),
+    admin_user: UserRecord = Depends(get_admin_user),
+) -> SourceDiscoveryRunResponse:
+    del admin_user
+    await refresh_store_from_db(db)
+    result = await run_source_discovery(
+        db,
+        max_new_per_topic=payload.max_new_per_topic,
+    )
+    await refresh_store_from_db(db)
+    return result

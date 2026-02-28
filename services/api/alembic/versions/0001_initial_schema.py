@@ -29,6 +29,17 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "topics",
+        sa.Column("id", sa.String(length=36), primary_key=True),
+        sa.Column("slug", sa.String(length=64), nullable=False, unique=True),
+        sa.Column("name", sa.String(length=128), nullable=False),
+        sa.Column("city", sa.String(length=64), nullable=False),
+        sa.Column("description", sa.Text(), nullable=True),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    )
+
+    op.create_table(
         "preferences",
         sa.Column("user_id", sa.String(length=36), primary_key=True),
         sa.Column("preferred_categories", sa.JSON(), nullable=False),
@@ -53,9 +64,24 @@ def upgrade() -> None:
         sa.Column("policy_risk_score", sa.Integer(), nullable=False),
         sa.Column("quality_score", sa.Integer(), nullable=False),
         sa.Column("crawl_frequency_minutes", sa.Integer(), nullable=False),
+        sa.Column("page_title", sa.String(length=255), nullable=True),
+        sa.Column("discovery_description", sa.Text(), nullable=True),
+        sa.Column("discovery_embedding_text", sa.Text(), nullable=True),
+        sa.Column("embedding", sa.JSON(), nullable=True),
+        sa.Column("embedding_model", sa.String(length=64), nullable=True),
+        sa.Column("discovered_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("terms_url", sa.String(length=512), nullable=True),
         sa.Column("notes", sa.Text(), nullable=True),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
+    )
+
+    op.create_table(
+        "source_topic_links",
+        sa.Column("source_id", sa.String(length=36), nullable=False, primary_key=True),
+        sa.Column("topic_id", sa.String(length=36), nullable=False, primary_key=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(["source_id"], ["sources.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["topic_id"], ["topics.id"], ondelete="CASCADE"),
     )
 
     op.create_table(
@@ -209,6 +235,8 @@ def downgrade() -> None:
     op.drop_table("event_provenance")
     op.drop_table("event_occurrences")
     op.drop_table("events")
+    op.drop_table("source_topic_links")
+    op.drop_table("topics")
     op.drop_table("sources")
     op.drop_table("preferences")
     op.drop_table("sessions")

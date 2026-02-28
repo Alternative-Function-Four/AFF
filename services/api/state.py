@@ -29,6 +29,8 @@ def _apply_snapshot(snapshot: dict[str, Any]) -> InMemoryStore:
     STORE.events = snapshot.get("events", {})
     STORE.interactions = snapshot.get("interactions", [])
     STORE.sources = snapshot.get("sources", {})
+    STORE.topics = snapshot.get("topics", {})
+    STORE.source_topic_links = snapshot.get("source_topic_links", [])
     STORE.raw_events = snapshot.get("raw_events", {})
     STORE.event_source_links = snapshot.get("event_source_links", [])
     STORE.recommendations = snapshot.get("recommendations", [])

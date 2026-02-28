@@ -274,6 +274,11 @@ class Source(BaseModel):
     policy_risk_score: int = Field(ge=0, le=100)
     quality_score: int = Field(ge=0, le=100)
     crawl_frequency_minutes: int = Field(ge=15)
+    page_title: str | None = None
+    discovery_description: str | None = None
+    discovery_metadata: FlexibleObject | None = None
+    discovered_at: datetime | None = None
+    canonical_url: str | None = None
     terms_url: str | None = None
     notes: str | None = None
     deleted_at: datetime | None = None
@@ -303,6 +308,19 @@ class SourceApprovalRequest(BaseModel):
 class IngestionRunRequest(BaseModel):
     source_ids: list[UUID] = Field(min_length=1)
     reason: str
+
+
+class SourceDiscoveryRunRequest(BaseModel):
+    max_new_per_topic: int = Field(default=5, ge=1, le=20)
+
+
+class SourceDiscoveryRunResponse(BaseModel):
+    run_id: str
+    topics_processed: int
+    discovered_sources: int
+    topic_links_created: int
+    skipped_sources: int
+    failed_sources: int
 
 
 class IngestionRunResponse(BaseModel):
@@ -355,6 +373,34 @@ class SimilarEventCandidate(DictLikeModel):
     datetime_start: str
     venue_name: str | None = None
     similarity_score: float
+
+
+class Topic(BaseModel):
+    id: UUID
+    slug: str
+    name: str
+    city: str
+    description: str | None = None
+    is_active: bool = True
+    created_at: datetime
+
+
+@dataclass
+class TopicRecord:
+    id: str
+    slug: str
+    name: str
+    city: str
+    description: str | None
+    is_active: bool
+    created_at: datetime
+
+
+@dataclass
+class SourceTopicLinkRecord:
+    source_id: str
+    topic_id: str
+    created_at: datetime
 
 
 @dataclass
@@ -451,6 +497,8 @@ class InMemoryStore:
     interactions: list[InteractionRecord] = field(default_factory=list)
     sources: dict[str, Source] = field(default_factory=dict)
     raw_events: dict[str, RawEventRecord] = field(default_factory=dict)
+    topics: dict[str, TopicRecord] = field(default_factory=dict)
+    source_topic_links: list[SourceTopicLinkRecord] = field(default_factory=list)
     event_source_links: list[EventSourceLinkRecord] = field(default_factory=list)
     recommendations: list[RecommendationRecord] = field(default_factory=list)
     notification_logs: list[tuple[str, NotificationLog]] = field(default_factory=list)

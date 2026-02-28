@@ -22,6 +22,8 @@ from entities import (
     Interaction,
     Notification,
     Preference,
+    SourceTopicLink,
+    Topic,
     RawEvent,
     Recommendation,
     Session,
@@ -32,8 +34,10 @@ from core import make_ingestion_metrics
 from models import (
     EventOccurrence as EventOccurrenceModel,
     EventRecord,
+    TopicRecord,
     EventSourceLinkRecord,
     InteractionRecord,
+    SourceTopicLinkRecord,
     FlexibleObject,
     NotificationLog,
     PreferenceProfile,
@@ -145,9 +149,36 @@ def to_source_model(row: Source) -> SourceModel:
         policy_risk_score=row.policy_risk_score,
         quality_score=row.quality_score,
         crawl_frequency_minutes=row.crawl_frequency_minutes,
+        page_title=row.page_title,
+        discovery_description=row.discovery_description,
+        discovery_metadata=FlexibleObject.model_validate(row.discovery_metadata)
+        if row.discovery_metadata is not None
+        else None,
+        discovered_at=row.discovered_at,
+        canonical_url=row.url,
         terms_url=row.terms_url,
         notes=row.notes,
         deleted_at=row.deleted_at,
+    )
+
+
+def to_topic_record(row: Topic) -> TopicRecord:
+    return TopicRecord(
+        id=row.id,
+        slug=row.slug,
+        name=row.name,
+        city=row.city,
+        description=row.description,
+        is_active=row.is_active,
+        created_at=row.created_at,
+    )
+
+
+def to_source_topic_link_record(row: SourceTopicLink) -> SourceTopicLinkRecord:
+    return SourceTopicLinkRecord(
+        source_id=row.source_id,
+        topic_id=row.topic_id,
+        created_at=row.created_at,
     )
 
 
@@ -242,6 +273,19 @@ async def get_store_snapshot(session: AsyncSession) -> dict[str, Any]:
     sources_result = await session.execute(select(Source))
     sources = [to_source_model(row) for row in sources_result.scalars().all()]
 
+    topics_result = await session.execute(select(Topic).where(Topic.is_active.is_(True)).order_by(Topic.name))
+    topics = [to_topic_record(row) for row in topics_result.scalars().all()]
+
+    source_topic_result = await session.execute(
+        select(SourceTopicLink).order_by(
+            SourceTopicLink.source_id,
+            SourceTopicLink.topic_id,
+        )
+    )
+    source_topic_links = [
+        to_source_topic_link_record(row) for row in source_topic_result.scalars().all()
+    ]
+
     raw_events_result = await session.execute(
         select(RawEvent).order_by(desc(RawEvent.captured_at))
     )
@@ -326,6 +370,8 @@ async def get_store_snapshot(session: AsyncSession) -> dict[str, Any]:
         "events": {item.event_id: item for item in events},
         "interactions": interactions,
         "sources": {item.id: item for item in sources},
+        "topics": {item.id: item for item in topics},
+        "source_topic_links": source_topic_links,
         "raw_events": {item.id: item for item in raw_events},
         "event_source_links": event_source_links,
         "recommendations": recommendations,
@@ -509,6 +555,25 @@ async def list_sources(
     return [to_source_model(row) for row in rows]
 
 
+async def list_topics(
+    session_db: AsyncSession,
+    topic_ids: list[str] | None = None,
+    include_inactive: bool = False,
+) -> list[TopicRecord]:
+    stmt = select(Topic)
+    if topic_ids:
+        stmt = stmt.where(Topic.id.in_(topic_ids))
+    if not include_inactive:
+        stmt = stmt.where(Topic.is_active.is_(True))
+    rows = (await session_db.execute(stmt)).scalars().all()
+    return [to_topic_record(row) for row in rows]
+
+
+async def get_topic(session_db: AsyncSession, topic_id: str) -> TopicRecord | None:
+    row = await session_db.get(Topic, topic_id)
+    return to_topic_record(row) if row else None
+
+
 async def get_source(session_db: AsyncSession, source_id: str) -> SourceModel | None:
     row = await session_db.get(Source, source_id)
     return to_source_model(row) if row else None
@@ -521,17 +586,34 @@ async def source_exists_with_url(session_db: AsyncSession, url: str) -> bool:
     return row.scalars().first() is not None
 
 
+async def list_source_topic_links(
+    session_db: AsyncSession,
+) -> list[SourceTopicLinkRecord]:
+    rows = await session_db.execute(
+        select(SourceTopicLink).order_by(
+            SourceTopicLink.source_id,
+            SourceTopicLink.topic_id,
+        )
+    )
+    return [to_source_topic_link_record(row) for row in rows.scalars().all()]
+
+
 async def create_source(session_db: AsyncSession, source: SourceModel) -> SourceModel:
+    canonical_url = source.canonical_url or str(source.url)
     row = Source(
         id=str(source.id),
         name=source.name,
-        url=str(source.url),
+        url=canonical_url,
         source_type=source.source_type,
         access_method=_enum_value(source.access_method),
         status=_enum_value(source.status),
         policy_risk_score=source.policy_risk_score,
         quality_score=source.quality_score,
         crawl_frequency_minutes=source.crawl_frequency_minutes,
+        page_title=source.page_title,
+        discovery_description=source.discovery_description,
+        discovery_metadata=dict(source.discovery_metadata) if source.discovery_metadata else None,
+        discovered_at=source.discovered_at,
         terms_url=source.terms_url,
         notes=source.notes,
         deleted_at=source.deleted_at,
@@ -554,11 +636,50 @@ async def save_source(session_db: AsyncSession, source: SourceModel) -> SourceMo
     row.policy_risk_score = source.policy_risk_score
     row.quality_score = source.quality_score
     row.crawl_frequency_minutes = source.crawl_frequency_minutes
+    row.page_title = source.page_title
+    row.discovery_description = source.discovery_description
+    row.discovery_metadata = (
+        dict(source.discovery_metadata) if source.discovery_metadata else None
+    )
+    row.discovered_at = source.discovered_at
     row.terms_url = source.terms_url
     row.notes = source.notes
     row.deleted_at = source.deleted_at
     await session_db.commit()
     return source
+
+
+async def create_source_topic_link(
+    session_db: AsyncSession,
+    source_id: str,
+    topic_id: str,
+    created_at: datetime,
+) -> SourceTopicLinkRecord | None:
+    existing = await session_db.execute(
+        select(SourceTopicLink).where(
+            SourceTopicLink.source_id == source_id,
+            SourceTopicLink.topic_id == topic_id,
+        ).limit(1)
+    )
+    if existing.scalars().first() is not None:
+        return SourceTopicLinkRecord(
+            source_id=source_id,
+            topic_id=topic_id,
+            created_at=created_at,
+        )
+
+    row = SourceTopicLink(
+        source_id=source_id,
+        topic_id=topic_id,
+        created_at=created_at,
+    )
+    session_db.add(row)
+    await session_db.commit()
+    return SourceTopicLinkRecord(
+        source_id=source_id,
+        topic_id=topic_id,
+        created_at=created_at,
+    )
 
 
 async def list_events(session_db: AsyncSession) -> list[EventRecord]:
@@ -765,6 +886,7 @@ async def create_ingestion_job(
 
 
 async def clear_all_tables(session: AsyncSession) -> None:
+    await session.execute(delete(SourceTopicLink))
     await session.execute(delete(IngestionLog))
     await session.execute(delete(IngestionJob))
     await session.execute(delete(Recommendation))
@@ -776,6 +898,7 @@ async def clear_all_tables(session: AsyncSession) -> None:
     await session.execute(delete(Event))
     await session.execute(delete(RawEvent))
     await session.execute(delete(Source))
+    await session.execute(delete(Topic))
     await session.execute(delete(Preference))
     await session.execute(delete(Session))
     await session.execute(delete(IngestionMetric))
@@ -832,6 +955,58 @@ async def seed_initial_data(session: AsyncSession) -> dict[str, Any]:
     )
     session.add_all([source_a, source_b, source_c])
     await session.flush()
+
+    topic_events = Topic(
+        id="aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaa1",
+        slug="events",
+        name="Events",
+        city="Singapore",
+        description="Singapore event calendars and listings.",
+        is_active=True,
+        created_at=current,
+    )
+    topic_food = Topic(
+        id="bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbb2",
+        slug="food",
+        name="Food",
+        city="Singapore",
+        description="Food and dining related listings.",
+        is_active=True,
+        created_at=current,
+    )
+    topic_nightlife = Topic(
+        id="cccccccc-cccc-4ccc-cccc-ccccccccccc3",
+        slug="nightlife",
+        name="Nightlife",
+        city="Singapore",
+        description="Music and nightlife event sources.",
+        is_active=True,
+        created_at=current,
+    )
+    session.add_all([topic_events, topic_food, topic_nightlife])
+
+    session.add_all([
+        SourceTopicLink(
+            source_id=source_a.id,
+            topic_id=topic_events.id,
+            created_at=current,
+        ),
+        SourceTopicLink(
+            source_id=source_a.id,
+            topic_id=topic_nightlife.id,
+            created_at=current,
+        ),
+        SourceTopicLink(
+            source_id=source_b.id,
+            topic_id=topic_food.id,
+            created_at=current,
+        ),
+        SourceTopicLink(
+            source_id=source_c.id,
+            topic_id=topic_nightlife.id,
+            created_at=current,
+        ),
+    ])
 
     event_a = Event(
         id="aaaaaaaa-1111-4111-8111-111111111111",
