@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "AFF Client",
+    "slug": "aff-client",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "aff-client",
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

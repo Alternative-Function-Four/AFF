@@ -38,6 +38,20 @@ def test_health_endpoint(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_cors_preflight_for_demo_login(client: TestClient) -> None:
+    response = client.options(
+        "/v1/auth/demo-login",
+        headers={
+            "Origin": "http://localhost:8081",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,authorization",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert "POST" in response.headers["access-control-allow-methods"]
+
+
 def test_error_envelope_shape_for_unauthorized_request(client: TestClient) -> None:
     response = client.get("/v1/preferences")
     assert response.status_code == 401
