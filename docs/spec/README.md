@@ -29,7 +29,6 @@ This spec kit is the single source of truth for product scope, architecture, API
 - `04-api/OPENAPI.yaml`: machine-readable API contract
 - `05-ops/OBSERVABILITY_AND_SLO.md`: metrics, SLOs, alerting thresholds
 - `05-ops/RUNBOOKS.md`: operational response playbooks
-- `06-delivery/HACKATHON_6H_PLAN.md`: executable 6-hour plan, role split, demo script, fallback strategy
 - `06-delivery/ACCEPTANCE_CRITERIA.md`: measurable definition of done and verification matrix
 
 ## Build Order
@@ -39,7 +38,7 @@ This spec kit is the single source of truth for product scope, architecture, API
 3. `03-data/SOURCE_POLICY.md`
 4. `05-ops/OBSERVABILITY_AND_SLO.md` + `05-ops/RUNBOOKS.md`
 5. `01-product/PRD.md` + `01-product/USER_FLOWS.md`
-6. `06-delivery/HACKATHON_6H_PLAN.md` + `06-delivery/ACCEPTANCE_CRITERIA.md`
+6. `06-delivery/ACCEPTANCE_CRITERIA.md`
 7. Final consistency pass against `04-api/OPENAPI.yaml`
 
 ## Decision Ledger
