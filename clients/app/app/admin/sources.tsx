@@ -1,39 +1,29 @@
 import { Link, useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useAdminSourcesQuery, useCreateSourceMutation } from "../../src/features/admin/api";
 import { APIClientError } from "../../src/shared/api/client";
+import { sourceAccessMethodOptions, sourceStatusFilterOptions } from "../../src/shared/config/options";
 import type { SourceAccessMethod, SourceStatus } from "../../src/shared/api/types";
 import { FormField } from "../../src/shared/ui/FormField";
 import { Screen } from "../../src/shared/ui/Screen";
 import { SectionCard } from "../../src/shared/ui/SectionCard";
+import { SegmentedControlField } from "../../src/shared/ui/SegmentedControlField";
+import { SingleSelectField } from "../../src/shared/ui/SingleSelectField";
 import { StatusMessage } from "../../src/shared/ui/StatusMessage";
 
 type SourceStatusFilter = SourceStatus | "all";
 
-function isStatusFilter(value: string): value is SourceStatusFilter {
-  return value === "all" || value === "pending" || value === "approved" || value === "rejected" || value === "paused";
-}
-
-function isAccessMethod(value: string): value is SourceAccessMethod {
-  return value === "api" || value === "rss" || value === "ics" || value === "html_extract" || value === "manual";
-}
-
 export default function AdminSourcesScreen(): JSX.Element {
   const router = useRouter();
 
-  const [statusFilterText, setStatusFilterText] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<SourceStatusFilter>("all");
   const [name, setName] = useState("Example Source");
   const [url, setUrl] = useState("https://example.com/events");
   const [sourceType, setSourceType] = useState("ticketing_platform");
-  const [accessMethodText, setAccessMethodText] = useState<string>("rss");
+  const [accessMethod, setAccessMethod] = useState<SourceAccessMethod>("rss");
   const [termsUrl, setTermsUrl] = useState("https://example.com/terms");
-
-  const statusFilter = useMemo(
-    () => (isStatusFilter(statusFilterText) ? statusFilterText : "all"),
-    [statusFilterText]
-  );
 
   const sourcesQuery = useAdminSourcesQuery(statusFilter);
   const createSource = useCreateSourceMutation();
@@ -55,20 +45,17 @@ export default function AdminSourcesScreen(): JSX.Element {
   return (
     <Screen>
       <SectionCard title="Source List">
-        <FormField
-          label="Status filter"
-          hint="all | pending | approved | rejected | paused"
-          value={statusFilterText}
-          onChangeText={setStatusFilterText}
-          autoCapitalize="none"
-        />
+        <SegmentedControlField label="Status filter" options={sourceStatusFilterOptions} value={statusFilter} onChange={setStatusFilter} />
 
         <View style={styles.row}>
           <Pressable style={styles.secondaryBtn} onPress={() => sourcesQuery.refetch()}>
             <Text style={styles.secondaryLabel}>Refresh</Text>
           </Pressable>
           <Pressable style={styles.secondaryBtn} onPress={() => router.push("/admin/ingestion")}>
-            <Text style={styles.secondaryLabel}>Go to Ingestion</Text>
+            <Text style={styles.secondaryLabel}>Ingestion</Text>
+          </Pressable>
+          <Pressable style={styles.secondaryBtn} onPress={() => router.push("/admin/notifications" as never)}>
+            <Text style={styles.secondaryLabel}>Test Notifications</Text>
           </Pressable>
         </View>
 
@@ -92,13 +79,7 @@ export default function AdminSourcesScreen(): JSX.Element {
         <FormField label="Name" value={name} onChangeText={setName} />
         <FormField label="URL" value={url} onChangeText={setUrl} autoCapitalize="none" autoCorrect={false} />
         <FormField label="Source type" value={sourceType} onChangeText={setSourceType} autoCapitalize="none" />
-        <FormField
-          label="Access method"
-          hint="api | rss | ics | html_extract | manual"
-          value={accessMethodText}
-          onChangeText={setAccessMethodText}
-          autoCapitalize="none"
-        />
+        <SingleSelectField label="Access method" options={sourceAccessMethodOptions} value={accessMethod} onChange={setAccessMethod} />
         <FormField label="Terms URL" value={termsUrl} onChangeText={setTermsUrl} autoCapitalize="none" autoCorrect={false} />
 
         <Pressable
@@ -109,7 +90,7 @@ export default function AdminSourcesScreen(): JSX.Element {
               name: name.trim(),
               url: url.trim(),
               source_type: sourceType.trim(),
-              access_method: isAccessMethod(accessMethodText) ? accessMethodText : "rss",
+              access_method: accessMethod,
               terms_url: termsUrl.trim() || undefined
             })
           }
@@ -128,7 +109,8 @@ export default function AdminSourcesScreen(): JSX.Element {
 const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
-    gap: 10
+    gap: 10,
+    flexWrap: "wrap"
   },
   primaryBtn: {
     minHeight: 44,
@@ -149,7 +131,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
     borderColor: "#B9C6D3",
-    backgroundColor: "#FFFFFF"
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12
   },
   secondaryLabel: {
     color: "#223B53",

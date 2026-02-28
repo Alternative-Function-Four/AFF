@@ -7,7 +7,11 @@ export type TelemetryEventName =
   | "feed_feedback_succeeded"
   | "notification_test_triggered"
   | "admin_source_approved"
-  | "admin_ingestion_run_triggered";
+  | "admin_ingestion_run_triggered"
+  | "ui_selector_used"
+  | "ui_advanced_mode_toggled"
+  | "admin_ingestion_selection_updated"
+  | "notification_test_event_selected";
 
 export type TelemetryPayload = {
   timestamp: string;

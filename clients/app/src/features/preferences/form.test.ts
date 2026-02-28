@@ -7,15 +7,15 @@ import {
 } from "./form";
 
 describe("preferences form mapping", () => {
-  it("converts comma separated strings to API payload", () => {
+  it("converts typed form values to API payload", () => {
     const result = toPreferenceInput({
-      preferred_categories: "events, food, nightlife",
-      preferred_subcategories: "indie_music, rooftop",
+      preferred_categories: ["events", "food", "nightlife"],
+      preferred_subcategories: ["indie_music", "rooftop"],
       budget_mode: "moderate",
       preferred_distance_km: 8,
       active_days: "both",
-      preferred_times: "evening, late_night",
-      anti_preferences: "large_crowds"
+      preferred_times: ["evening", "late_night"],
+      anti_preferences: ["large_crowds"]
     });
 
     expect(result).toEqual({
@@ -29,7 +29,7 @@ describe("preferences form mapping", () => {
     });
   });
 
-  it("converts API payload to comma separated form defaults", () => {
+  it("converts API payload to typed form defaults", () => {
     const result = toPreferenceFormDefaults({
       preferred_categories: ["events", "food"],
       preferred_subcategories: ["indie_music"],
@@ -41,30 +41,47 @@ describe("preferences form mapping", () => {
     });
 
     expect(result).toEqual({
-      preferred_categories: "events, food",
-      preferred_subcategories: "indie_music",
+      preferred_categories: ["events", "food"],
+      preferred_subcategories: ["indie_music"],
       budget_mode: "budget",
       preferred_distance_km: 3,
       active_days: "weekday",
-      preferred_times: "morning, afternoon",
-      anti_preferences: "large_crowds, rain"
+      preferred_times: ["morning", "afternoon"],
+      anti_preferences: ["large_crowds", "rain"]
     });
   });
 
   it("rejects invalid preferred time tokens", () => {
     const parsed = preferencesFormSchema.safeParse({
-      preferred_categories: "events",
-      preferred_subcategories: "",
+      preferred_categories: ["events"],
+      preferred_subcategories: [],
       budget_mode: "any",
       preferred_distance_km: 5,
       active_days: "both",
-      preferred_times: "sunrise",
-      anti_preferences: ""
+      preferred_times: ["sunrise"],
+      anti_preferences: []
     });
 
     expect(parsed.success).toBe(false);
     if (!parsed.success) {
-      expect(parsed.error.issues[0]?.path).toEqual(["preferred_times"]);
+      expect(parsed.error.issues[0]?.path).toEqual(["preferred_times", 0]);
+    }
+  });
+
+  it("rejects empty preferred category selection", () => {
+    const parsed = preferencesFormSchema.safeParse({
+      preferred_categories: [],
+      preferred_subcategories: [],
+      budget_mode: "any",
+      preferred_distance_km: 5,
+      active_days: "both",
+      preferred_times: ["evening"],
+      anti_preferences: []
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues[0]?.path).toEqual(["preferred_categories"]);
     }
   });
 });

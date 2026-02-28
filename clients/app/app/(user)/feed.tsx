@@ -5,12 +5,16 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 import { useFeedbackMutation, useFeedQuery, type FeedParams } from "../../src/features/feed/api";
 import { APIClientError } from "../../src/shared/api/client";
 import { env } from "../../src/shared/config/env";
+import { budgetModeOptions, feedModeOptions, timeWindowOptions } from "../../src/shared/config/options";
 import type { FeedbackSignal, TimeWindow, BudgetMode, FeedMode } from "../../src/shared/api/types";
 import { useSessionStore } from "../../src/shared/state/session";
+import { trackEvent } from "../../src/shared/telemetry/events";
 import { formatDateTimeSg, formatSgd } from "../../src/shared/time/format";
 import { FormField } from "../../src/shared/ui/FormField";
 import { Screen } from "../../src/shared/ui/Screen";
 import { SectionCard } from "../../src/shared/ui/SectionCard";
+import { SegmentedControlField } from "../../src/shared/ui/SegmentedControlField";
+import { SingleSelectField } from "../../src/shared/ui/SingleSelectField";
 import { StatusMessage } from "../../src/shared/ui/StatusMessage";
 
 const feedbackSignals: FeedbackSignal[] = ["interested", "not_for_me", "already_knew"];
@@ -39,11 +43,12 @@ export default function FeedScreen(): JSX.Element {
   const router = useRouter();
   const session = useSessionStore((state) => state.session);
 
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [latText, setLatText] = useState(String(initialFilters.lat));
   const [lngText, setLngText] = useState(String(initialFilters.lng));
-  const [timeWindowText, setTimeWindowText] = useState<string>(initialFilters.time_window);
-  const [budgetText, setBudgetText] = useState<string>(initialFilters.budget);
-  const [modeText, setModeText] = useState<string>(initialFilters.mode);
+  const [timeWindowText, setTimeWindowText] = useState<TimeWindow>(initialFilters.time_window);
+  const [budgetText, setBudgetText] = useState<BudgetMode>(initialFilters.budget);
+  const [modeText, setModeText] = useState<FeedMode>(initialFilters.mode);
 
   const filters = useMemo(() => {
     const lat = Number(latText);
@@ -70,41 +75,80 @@ export default function FeedScreen(): JSX.Element {
   return (
     <Screen>
       <SectionCard title="Feed Filters">
-        <FormField
-          label="Latitude"
-          value={latText}
-          onChangeText={setLatText}
-          keyboardType="decimal-pad"
-          hint="Singapore default if invalid"
-        />
-        <FormField
-          label="Longitude"
-          value={lngText}
-          onChangeText={setLngText}
-          keyboardType="decimal-pad"
-          hint="Singapore default if invalid"
-        />
-        <FormField
-          label="Time window"
+        <SingleSelectField
+          label="When are you planning?"
+          options={timeWindowOptions}
           value={timeWindowText}
-          onChangeText={setTimeWindowText}
-          autoCapitalize="none"
-          hint="today | tonight | weekend | next_7_days"
+          onChange={(next) => {
+            setTimeWindowText(next);
+            trackEvent("ui_selector_used", {
+              surface: "mobile",
+              selector: "feed_time_window",
+              value: next
+            });
+          }}
         />
-        <FormField
+        <SegmentedControlField
           label="Budget"
+          options={budgetModeOptions}
           value={budgetText}
-          onChangeText={setBudgetText}
-          autoCapitalize="none"
-          hint="budget | moderate | premium | any"
+          onChange={(next) => {
+            setBudgetText(next);
+            trackEvent("ui_selector_used", {
+              surface: "mobile",
+              selector: "feed_budget",
+              value: next
+            });
+          }}
         />
-        <FormField
-          label="Mode"
+        <SegmentedControlField
+          label="Plan type"
+          options={feedModeOptions}
           value={modeText}
-          onChangeText={setModeText}
-          autoCapitalize="none"
-          hint="solo | date | group"
+          onChange={(next) => {
+            setModeText(next);
+            trackEvent("ui_selector_used", {
+              surface: "mobile",
+              selector: "feed_mode",
+              value: next
+            });
+          }}
         />
+
+        <Pressable
+          accessibilityRole="button"
+          style={styles.secondaryBtn}
+          onPress={() => {
+            const nextValue = !showAdvancedFilters;
+            setShowAdvancedFilters(nextValue);
+            trackEvent("ui_advanced_mode_toggled", {
+              surface: "mobile",
+              enabled: nextValue
+            });
+          }}
+        >
+          <Text style={styles.secondaryLabel}>{showAdvancedFilters ? "Hide advanced location filters" : "Show advanced location filters"}</Text>
+        </Pressable>
+
+        {showAdvancedFilters ? (
+          <>
+            <FormField
+              label="Latitude"
+              value={latText}
+              onChangeText={setLatText}
+              keyboardType="decimal-pad"
+              hint="If left invalid, we'll use Singapore city center."
+            />
+            <FormField
+              label="Longitude"
+              value={lngText}
+              onChangeText={setLngText}
+              keyboardType="decimal-pad"
+              hint="If left invalid, we'll use Singapore city center."
+            />
+          </>
+        ) : null}
+
         <Pressable accessibilityRole="button" style={styles.secondaryBtn} onPress={() => feedQuery.refetch()}>
           <Text style={styles.secondaryLabel}>Refresh Feed</Text>
         </Pressable>

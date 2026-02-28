@@ -18,6 +18,7 @@ export default function RootLayout(): JSX.Element {
         <Stack.Screen name="admin/sources" options={{ title: "Admin Sources" }} />
         <Stack.Screen name="admin/source/[sourceId]" options={{ title: "Source Decision" }} />
         <Stack.Screen name="admin/ingestion" options={{ title: "Admin Ingestion" }} />
+        <Stack.Screen name="admin/notifications" options={{ title: "Admin Notifications" }} />
       </Stack>
     </AppProviders>
   );

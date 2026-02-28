@@ -4,15 +4,14 @@ import { ActivityIndicator, Pressable, StyleSheet, Text } from "react-native";
 
 import { useAdminSourcesQuery, useApproveSourceMutation } from "../../../src/features/admin/api";
 import { APIClientError } from "../../../src/shared/api/client";
+import { sourceDecisionOptions } from "../../../src/shared/config/options";
 import type { SourceApprovalDecision } from "../../../src/shared/api/types";
 import { FormField } from "../../../src/shared/ui/FormField";
+import { NumberStepperField } from "../../../src/shared/ui/NumberStepperField";
 import { Screen } from "../../../src/shared/ui/Screen";
 import { SectionCard } from "../../../src/shared/ui/SectionCard";
+import { SegmentedControlField } from "../../../src/shared/ui/SegmentedControlField";
 import { StatusMessage } from "../../../src/shared/ui/StatusMessage";
-
-function isDecision(value: string): value is SourceApprovalDecision {
-  return value === "approved" || value === "rejected" || value === "needs_manual_review";
-}
 
 export default function AdminSourceDetailScreen(): JSX.Element {
   const router = useRouter();
@@ -22,9 +21,9 @@ export default function AdminSourceDetailScreen(): JSX.Element {
   const sourcesQuery = useAdminSourcesQuery("all");
   const approveMutation = useApproveSourceMutation();
 
-  const [decisionText, setDecisionText] = useState<string>("approved");
-  const [policyRiskText, setPolicyRiskText] = useState("20");
-  const [qualityText, setQualityText] = useState("80");
+  const [decision, setDecision] = useState<SourceApprovalDecision>("approved");
+  const [policyRisk, setPolicyRisk] = useState(20);
+  const [qualityScore, setQualityScore] = useState(80);
   const [notes, setNotes] = useState("Looks compliant for prototype use.");
 
   const source = useMemo(
@@ -51,27 +50,28 @@ export default function AdminSourceDetailScreen(): JSX.Element {
             <Text style={styles.meta}>URL: {source.url}</Text>
           </>
         ) : (
-          <StatusMessage tone="error" message="Source not found for this id." />
+          <StatusMessage tone="error" message="We couldn't find this source." />
         )}
 
-        <FormField
-          label="Decision"
-          hint="approved | rejected | needs_manual_review"
-          value={decisionText}
-          onChangeText={setDecisionText}
-          autoCapitalize="none"
+        <SegmentedControlField label="Decision" options={sourceDecisionOptions} value={decision} onChange={setDecision} />
+
+        <NumberStepperField
+          label="Policy risk score"
+          value={policyRisk}
+          onChange={setPolicyRisk}
+          min={0}
+          max={100}
+          step={5}
+          hint="0 is safest, 100 is highest risk."
         />
-        <FormField
-          label="Policy risk score (0-100)"
-          value={policyRiskText}
-          onChangeText={setPolicyRiskText}
-          keyboardType="numeric"
-        />
-        <FormField
-          label="Quality score (0-100)"
-          value={qualityText}
-          onChangeText={setQualityText}
-          keyboardType="numeric"
+        <NumberStepperField
+          label="Quality score"
+          value={qualityScore}
+          onChange={setQualityScore}
+          min={0}
+          max={100}
+          step={5}
+          hint="Higher score means better source quality."
         />
         <FormField label="Notes" value={notes} onChangeText={setNotes} multiline numberOfLines={3} />
 
@@ -85,9 +85,9 @@ export default function AdminSourceDetailScreen(): JSX.Element {
             approveMutation.mutate({
               sourceId,
               payload: {
-                decision: isDecision(decisionText) ? decisionText : "approved",
-                policy_risk_score: Number(policyRiskText),
-                quality_score: Number(qualityText),
+                decision,
+                policy_risk_score: policyRisk,
+                quality_score: qualityScore,
                 notes: notes.trim()
               }
             });

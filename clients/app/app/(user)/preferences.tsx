@@ -4,6 +4,14 @@ import { useEffect } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text } from "react-native";
 
 import {
+  activeDaysOptions,
+  budgetModeOptions,
+  preferredTimeOptions,
+  suggestedAntiPreferenceTags,
+  suggestedCategoryTags,
+  suggestedSubcategoryTags
+} from "../../src/shared/config/options";
+import {
   preferencesFormSchema,
   toPreferenceFormDefaults,
   toPreferenceInput,
@@ -12,9 +20,12 @@ import {
 import { usePreferencesQuery, useSavePreferencesMutation } from "../../src/features/preferences/api";
 import { APIClientError } from "../../src/shared/api/client";
 import { FormField } from "../../src/shared/ui/FormField";
+import { MultiSelectChipsField } from "../../src/shared/ui/MultiSelectChipsField";
 import { Screen } from "../../src/shared/ui/Screen";
 import { SectionCard } from "../../src/shared/ui/SectionCard";
+import { SegmentedControlField } from "../../src/shared/ui/SegmentedControlField";
 import { StatusMessage } from "../../src/shared/ui/StatusMessage";
+import { TagInputField } from "../../src/shared/ui/TagInputField";
 
 export default function PreferencesScreen(): JSX.Element {
   const preferencesQuery = usePreferencesQuery();
@@ -28,13 +39,13 @@ export default function PreferencesScreen(): JSX.Element {
   } = useForm<PreferencesFormValues>({
     resolver: zodResolver(preferencesFormSchema),
     defaultValues: {
-      preferred_categories: "",
-      preferred_subcategories: "",
+      preferred_categories: [],
+      preferred_subcategories: [],
       budget_mode: "moderate",
       preferred_distance_km: 8,
       active_days: "both",
-      preferred_times: "evening",
-      anti_preferences: ""
+      preferred_times: ["evening"],
+      anti_preferences: []
     }
   });
 
@@ -52,30 +63,31 @@ export default function PreferencesScreen(): JSX.Element {
     preferencesQuery.error instanceof APIClientError
       ? `${preferencesQuery.error.message} (${preferencesQuery.error.code})`
       : preferencesQuery.error
-        ? "Unable to load preferences."
+        ? "We couldn't load your preferences."
         : null;
 
   const mutationError =
     savePreferences.error instanceof APIClientError
       ? `${savePreferences.error.message} (${savePreferences.error.code})`
       : savePreferences.error
-        ? "Unable to save preferences."
+        ? "We couldn't save your changes."
         : null;
 
   return (
     <Screen>
       <SectionCard title="Preferences">
+        <Text style={styles.subtitle}>Update your tastes anytime. We'll use this on your next feed refresh.</Text>
         {preferencesQuery.isLoading ? <ActivityIndicator /> : null}
 
         <Controller
           control={control}
           name="preferred_categories"
-          render={({ field: { value, onChange, onBlur } }) => (
-            <FormField
-              label="Preferred categories"
-              value={value}
-              onChangeText={onChange}
-              onBlur={onBlur}
+          render={({ field: { value, onChange } }) => (
+            <TagInputField
+              label="Favorite categories"
+              values={value}
+              onChange={onChange}
+              suggestions={suggestedCategoryTags}
               error={errors.preferred_categories?.message}
             />
           )}
@@ -83,23 +95,15 @@ export default function PreferencesScreen(): JSX.Element {
         <Controller
           control={control}
           name="preferred_subcategories"
-          render={({ field: { value, onChange, onBlur } }) => (
-            <FormField label="Preferred subcategories" value={value} onChangeText={onChange} onBlur={onBlur} />
+          render={({ field: { value, onChange } }) => (
+            <TagInputField label="Specific interests" values={value} onChange={onChange} suggestions={suggestedSubcategoryTags} />
           )}
         />
         <Controller
           control={control}
           name="budget_mode"
-          render={({ field: { value, onChange, onBlur } }) => (
-            <FormField
-              label="Budget mode"
-              hint="budget | moderate | premium | any"
-              value={value}
-              onChangeText={onChange}
-              onBlur={onBlur}
-              autoCapitalize="none"
-              error={errors.budget_mode?.message}
-            />
+          render={({ field: { value, onChange } }) => (
+            <SegmentedControlField label="Budget preference" options={budgetModeOptions} value={value} onChange={onChange} />
           )}
         />
         <Controller
@@ -112,6 +116,7 @@ export default function PreferencesScreen(): JSX.Element {
               value={String(value)}
               onChangeText={onChange}
               onBlur={onBlur}
+              hint="Set the maximum travel distance."
               error={errors.preferred_distance_km?.message}
             />
           )}
@@ -119,28 +124,19 @@ export default function PreferencesScreen(): JSX.Element {
         <Controller
           control={control}
           name="active_days"
-          render={({ field: { value, onChange, onBlur } }) => (
-            <FormField
-              label="Active days"
-              hint="weekday | weekend | both"
-              value={value}
-              onChangeText={onChange}
-              onBlur={onBlur}
-              autoCapitalize="none"
-              error={errors.active_days?.message}
-            />
+          render={({ field: { value, onChange } }) => (
+            <SegmentedControlField label="Active days" options={activeDaysOptions} value={value} onChange={onChange} />
           )}
         />
         <Controller
           control={control}
           name="preferred_times"
-          render={({ field: { value, onChange, onBlur } }) => (
-            <FormField
+          render={({ field: { value, onChange } }) => (
+            <MultiSelectChipsField
               label="Preferred times"
-              hint="morning, afternoon, evening, late_night"
-              value={value}
-              onChangeText={onChange}
-              onBlur={onBlur}
+              options={preferredTimeOptions}
+              values={value}
+              onChange={onChange}
               error={errors.preferred_times?.message}
             />
           )}
@@ -148,8 +144,14 @@ export default function PreferencesScreen(): JSX.Element {
         <Controller
           control={control}
           name="anti_preferences"
-          render={({ field: { value, onChange, onBlur } }) => (
-            <FormField label="Anti-preferences" value={value} onChangeText={onChange} onBlur={onBlur} />
+          render={({ field: { value, onChange } }) => (
+            <TagInputField
+              label="Avoid these"
+              values={value}
+              onChange={onChange}
+              suggestions={suggestedAntiPreferenceTags}
+              hint="Optional. Tap a selected item to remove it."
+            />
           )}
         />
 
@@ -160,12 +162,16 @@ export default function PreferencesScreen(): JSX.Element {
 
       {queryError ? <StatusMessage tone="error" message={queryError} /> : null}
       {mutationError ? <StatusMessage tone="error" message={mutationError} /> : null}
-      {savePreferences.isSuccess ? <StatusMessage tone="success" message="Preferences saved with optimistic update." /> : null}
+      {savePreferences.isSuccess ? <StatusMessage tone="success" message="Preferences saved." /> : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  subtitle: {
+    color: "#445466",
+    lineHeight: 20
+  },
   primaryBtn: {
     minHeight: 44,
     borderRadius: 8,

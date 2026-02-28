@@ -1,31 +1,38 @@
 import { useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useAdminSourcesQuery, useRunIngestionMutation } from "../../src/features/admin/api";
 import { APIClientError } from "../../src/shared/api/client";
-import { FormField } from "../../src/shared/ui/FormField";
+import { ingestionReasonOptions } from "../../src/shared/config/options";
+import { trackEvent } from "../../src/shared/telemetry/events";
+import { EntityMultiSelectField } from "../../src/shared/ui/EntityMultiSelectField";
 import { Screen } from "../../src/shared/ui/Screen";
 import { SectionCard } from "../../src/shared/ui/SectionCard";
+import { SingleSelectField } from "../../src/shared/ui/SingleSelectField";
 import { StatusMessage } from "../../src/shared/ui/StatusMessage";
+import { setAllSelections } from "../../src/shared/ui/selection";
 
-function splitIds(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0);
-}
+type IngestionReason = "scheduled_sync" | "manual_retry" | "policy_recheck";
 
 export default function AdminIngestionScreen(): JSX.Element {
   const approvedSourcesQuery = useAdminSourcesQuery("approved");
   const runIngestion = useRunIngestionMutation();
 
-  const [sourceIdsText, setSourceIdsText] = useState("");
-  const [reason, setReason] = useState("scheduled_sync");
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [reason, setReason] = useState<IngestionReason>("scheduled_sync");
 
-  const suggestedIds = useMemo(
-    () => approvedSourcesQuery.data?.items.map((source) => source.id).join(", ") ?? "",
+  const options = useMemo(
+    () =>
+      approvedSourcesQuery.data?.items.map((source) => ({
+        id: source.id,
+        label: source.name,
+        description: `${source.source_type} · ${source.url}`
+      })) ?? [],
     [approvedSourcesQuery.data?.items]
   );
+
+  const allIds = useMemo(() => options.map((option) => option.id), [options]);
+  const allSelected = allIds.length > 0 && selectedSourceIds.length === allIds.length;
 
   const mutationError =
     runIngestion.error instanceof APIClientError
@@ -43,29 +50,57 @@ export default function AdminIngestionScreen(): JSX.Element {
           <StatusMessage tone="info" message="No approved sources available. Approve at least one source first." />
         ) : null}
 
-        {approvedSourcesQuery.data?.items.map((source) => (
-          <Text style={styles.meta} key={source.id}>
-            {source.id} · {source.name}
-          </Text>
-        ))}
+        <View style={styles.row}>
+          <Pressable
+            accessibilityRole="button"
+            style={styles.secondaryBtn}
+            onPress={() => {
+              const nextValues = setAllSelections(allIds, !allSelected);
+              setSelectedSourceIds(nextValues);
+              trackEvent("admin_ingestion_selection_updated", {
+                surface: "admin_web",
+                selected_count: nextValues.length
+              });
+            }}
+            disabled={allIds.length === 0}
+          >
+            <Text style={styles.secondaryLabel}>{allSelected ? "Clear Selection" : "Select All Approved"}</Text>
+          </Pressable>
+          <Pressable style={styles.secondaryBtn} onPress={() => approvedSourcesQuery.refetch()}>
+            <Text style={styles.secondaryLabel}>Refresh</Text>
+          </Pressable>
+        </View>
 
-        <FormField
-          label="Source IDs (comma-separated)"
-          value={sourceIdsText}
-          onChangeText={setSourceIdsText}
-          autoCapitalize="none"
-          autoCorrect={false}
-          hint={suggestedIds.length > 0 ? `Approved: ${suggestedIds}` : "Enter at least one source id"}
+        <Text style={styles.meta}>Selected sources: {selectedSourceIds.length}</Text>
+
+        <EntityMultiSelectField
+          label="Approved sources"
+          options={options}
+          values={selectedSourceIds}
+          onChange={(nextValues) => {
+            setSelectedSourceIds(nextValues);
+            trackEvent("admin_ingestion_selection_updated", {
+              surface: "admin_web",
+              selected_count: nextValues.length
+            });
+          }}
+          emptyMessage="No approved sources yet."
         />
-        <FormField label="Reason" value={reason} onChangeText={setReason} autoCapitalize="none" autoCorrect={false} />
+
+        <SingleSelectField
+          label="Reason"
+          options={ingestionReasonOptions}
+          value={reason}
+          onChange={setReason}
+        />
 
         <Pressable
           style={styles.primaryBtn}
-          disabled={runIngestion.isPending || splitIds(sourceIdsText).length === 0}
+          disabled={runIngestion.isPending || selectedSourceIds.length === 0}
           onPress={() =>
             runIngestion.mutate({
-              source_ids: splitIds(sourceIdsText),
-              reason: reason.trim().length ? reason.trim() : "scheduled_sync"
+              source_ids: selectedSourceIds,
+              reason
             })
           }
         >
@@ -86,6 +121,11 @@ export default function AdminIngestionScreen(): JSX.Element {
 }
 
 const styles = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    gap: 10,
+    flexWrap: "wrap"
+  },
   meta: {
     color: "#3D5064"
   },
@@ -99,5 +139,20 @@ const styles = StyleSheet.create({
   primaryLabel: {
     color: "#FFFFFF",
     fontWeight: "700"
+  },
+  secondaryBtn: {
+    minHeight: 44,
+    flex: 1,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#B9C6D3",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12
+  },
+  secondaryLabel: {
+    color: "#223B53",
+    fontWeight: "600"
   }
 });

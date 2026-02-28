@@ -25,6 +25,7 @@ Expo React Native client scaffold aligned with `docs/spec/02-architecture/FRONTE
 - `/admin/sources`
 - `/admin/source/:sourceId`
 - `/admin/ingestion`
+- `/admin/notifications`
 
 ## Notes
 
