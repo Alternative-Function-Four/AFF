@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import fields as dataclass_fields
 from pathlib import Path
 import re
 import statistics
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 import main
+from models import EventRecord, RawEventRecord, Source
 
 
 @pytest.fixture(autouse=True)
@@ -89,6 +91,41 @@ def test_api_contract_endpoints_exist_in_openapi_and_app() -> None:
     assert expected.issubset(app_pairs)
 
 
+def _iter_contract_endpoint_sections(
+    contract_text: str,
+) -> list[tuple[str, str, str]]:
+    sections: list[tuple[str, str, str]] = []
+    matches = list(re.finditer(r"^### `([A-Z]+) ([^`]+)`$", contract_text, flags=re.MULTILINE))
+
+    for index, match in enumerate(matches):
+        section_start = match.end()
+        section_end = matches[index + 1].start() if index + 1 < len(matches) else len(contract_text)
+        sections.append((match.group(1), match.group(2), contract_text[section_start:section_end]))
+
+    return sections
+
+
+def test_api_contract_endpoint_sections_define_auth_schema_and_examples() -> None:
+    root = Path(__file__).resolve().parents[3]
+    contract_text = (root / "docs" / "spec" / "04-api" / "API_CONTRACT.md").read_text(encoding="utf-8")
+
+    missing: list[str] = []
+    for method, path, section in _iter_contract_endpoint_sections(contract_text):
+        endpoint = f"{method} {path}"
+        checks = {
+            "auth mode": r"^- Auth:\s*.+$",
+            "request schema": r"^- Request schema:\s*.+$",
+            "response schema": r"^- Response schema:\s*.+$",
+            "example label": r"^- .*example.*$",
+            "json example body": r"```json[\s\S]*?```",
+        }
+        for check_name, pattern in checks.items():
+            if not re.search(pattern, section, flags=re.IGNORECASE | re.MULTILINE):
+                missing.append(f"{endpoint} missing {check_name}")
+
+    assert not missing, "\n".join(missing)
+
+
 def test_generated_openapi_schema_is_well_formed() -> None:
     schema = main.app.openapi()
     assert schema["openapi"].startswith("3.")
@@ -102,6 +139,19 @@ def test_generated_openapi_schema_is_well_formed() -> None:
     for path in post_paths:
         assert path in schema["paths"]
     assert "responses" in schema["paths"]["/v1/auth/demo-login"]["post"]
+
+
+def test_soft_delete_fields_present_on_mutable_source_event_tables() -> None:
+    assert "deleted_at" in Source.model_fields
+    assert Source.model_fields["deleted_at"].default is None
+
+    event_fields = {field.name: field for field in dataclass_fields(EventRecord)}
+    raw_event_fields = {field.name: field for field in dataclass_fields(RawEventRecord)}
+
+    assert "deleted_at" in event_fields
+    assert "deleted_at" in raw_event_fields
+    assert event_fields["deleted_at"].default is None
+    assert raw_event_fields["deleted_at"].default is None
 
 
 def test_error_envelope_shape_is_consistent() -> None:

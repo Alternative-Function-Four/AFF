@@ -122,7 +122,7 @@ Common status codes:
 - Auth: required
 - Request schema: none
 - Response schema: `PreferenceProfile`
-- 200 response:
+- 200 response example:
 
 ```json
 {
