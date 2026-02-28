@@ -1,0 +1,822 @@
+openapi: 3.0.3
+info:
+  title: AFF API
+  version: "1.0.0"
+  description: Singapore hackathon prototype API contract.
+servers:
+  - url: https://api.aff.local
+security:
+  - BearerAuth: []
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /v1/auth/demo-login:
+    post:
+      summary: Create demo auth session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DemoLoginRequest'
+            example:
+              display_name: Ari
+              persona_seed: night_owl_foodie
+      responses:
+        "200":
+          description: Demo session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        "400":
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/auth/login:
+    post:
+      summary: Email-password login (documented optional endpoint)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordLoginRequest'
+            example:
+              email: user@example.com
+              password: secret
+      responses:
+        "200":
+          description: Login success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        "401":
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/preferences:
+    get:
+      summary: Get preference profile
+      responses:
+        "200":
+          description: Preference profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferenceProfile'
+        "401":
+          $ref: '#/components/responses/ErrorResponse'
+    put:
+      summary: Update preference profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreferenceProfileInput'
+            example:
+              preferred_categories: [events, food, nightlife]
+              preferred_subcategories: [indie_music]
+              budget_mode: moderate
+              preferred_distance_km: 8
+              active_days: both
+              preferred_times: [evening]
+              anti_preferences: [large_crowds]
+      responses:
+        "200":
+          description: Updated preference profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferenceProfile'
+        "422":
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/interactions:
+    post:
+      summary: Capture user interaction signal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InteractionCreateRequest'
+            example:
+              event_id: 11111111-1111-1111-1111-111111111111
+              signal: interested
+              context:
+                surface: feed
+      responses:
+        "201":
+          description: Interaction created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedResponse'
+        "404":
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/feed:
+    get:
+      summary: Get personalized feed
+      parameters:
+        - in: query
+          name: lat
+          required: true
+          schema:
+            type: number
+        - in: query
+          name: lng
+          required: true
+          schema:
+            type: number
+        - in: query
+          name: time_window
+          required: true
+          schema:
+            type: string
+            enum: [today, tonight, weekend, next_7_days]
+        - in: query
+          name: budget
+          required: true
+          schema:
+            type: string
+            enum: [budget, moderate, premium, any]
+        - in: query
+          name: mode
+          required: true
+          schema:
+            type: string
+            enum: [solo, date, group]
+      responses:
+        "200":
+          description: Personalized feed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedResponse'
+        "401":
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/events/{event_id}:
+    get:
+      summary: Get event detail
+      parameters:
+        - in: path
+          name: event_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Event detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventDetail'
+        "404":
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/events/{event_id}/feedback:
+    post:
+      summary: Submit event feedback
+      parameters:
+        - in: path
+          name: event_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventFeedbackRequest'
+            example:
+              signal: not_for_me
+              context:
+                surface: event_detail
+      responses:
+        "201":
+          description: Feedback stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedResponse'
+        "404":
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/notifications:
+    get:
+      summary: List user notifications
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Notification list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationLog'
+        "401":
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/notifications/test:
+    post:
+      summary: Trigger test notification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TestNotificationRequest'
+            example:
+              event_id: 11111111-1111-1111-1111-111111111111
+              reason: high_relevance_time_sensitive
+      responses:
+        "202":
+          description: Notification queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [queued, notification_id]
+                properties:
+                  queued:
+                    type: boolean
+                    example: true
+                  notification_id:
+                    type: string
+                    format: uuid
+        "401":
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/admin/sources:
+    get:
+      summary: List sources
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+            enum: [pending, approved, rejected, paused]
+      responses:
+        "200":
+          description: Source list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Source'
+        "403":
+          $ref: '#/components/responses/ErrorResponse'
+    post:
+      summary: Create source
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceCreateRequest'
+            example:
+              name: Example Events
+              url: https://example.com/events
+              source_type: ticketing_platform
+              access_method: rss
+              terms_url: https://example.com/terms
+      responses:
+        "201":
+          description: Source created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+        "409":
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/admin/sources/{source_id}/approve:
+    post:
+      summary: Approve or reject source
+      parameters:
+        - in: path
+          name: source_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceApprovalRequest'
+            example:
+              decision: approved
+              policy_risk_score: 28
+              quality_score: 74
+              notes: ICS endpoint stable
+      responses:
+        "200":
+          description: Source updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+        "404":
+          $ref: '#/components/responses/ErrorResponse'
+
+  /v1/admin/ingestion/run:
+    post:
+      summary: Queue ingestion run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestionRunRequest'
+            example:
+              source_ids:
+                - 11111111-1111-1111-1111-111111111111
+              reason: scheduled_sync
+      responses:
+        "202":
+          description: Ingestion queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id, queued_count]
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+                  queued_count:
+                    type: integer
+                    minimum: 0
+        "403":
+          $ref: '#/components/responses/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    ErrorResponse:
+      description: Error envelope
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            code: INVALID_REQUEST
+            message: Validation failed
+            details:
+              field: budget
+            request_id: req_01JABC
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [code, message, details, request_id]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        request_id:
+          type: string
+
+    UserSummary:
+      type: object
+      required: [id, display_name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+
+    AuthSessionResponse:
+      type: object
+      required: [access_token, token_type, expires_at, user]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          example: bearer
+        expires_at:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/UserSummary'
+
+    DemoLoginRequest:
+      type: object
+      required: [display_name]
+      properties:
+        display_name:
+          type: string
+        persona_seed:
+          type: string
+
+    PasswordLoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    PreferenceProfileInput:
+      type: object
+      required:
+        - preferred_categories
+        - preferred_subcategories
+        - budget_mode
+        - preferred_distance_km
+        - active_days
+        - preferred_times
+        - anti_preferences
+      properties:
+        preferred_categories:
+          type: array
+          items:
+            type: string
+        preferred_subcategories:
+          type: array
+          items:
+            type: string
+        budget_mode:
+          type: string
+          enum: [budget, moderate, premium, any]
+        preferred_distance_km:
+          type: number
+          minimum: 0
+          maximum: 50
+        active_days:
+          type: string
+          enum: [weekday, weekend, both]
+        preferred_times:
+          type: array
+          items:
+            type: string
+            enum: [morning, afternoon, evening, late_night]
+        anti_preferences:
+          type: array
+          items:
+            type: string
+
+    PreferenceProfile:
+      allOf:
+        - $ref: '#/components/schemas/PreferenceProfileInput'
+        - type: object
+          required: [user_id, updated_at]
+          properties:
+            user_id:
+              type: string
+              format: uuid
+            updated_at:
+              type: string
+              format: date-time
+
+    InteractionCreateRequest:
+      type: object
+      required: [event_id, signal, context]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        signal:
+          type: string
+          enum: [interested, not_for_me, already_knew, saved, dismissed, opened]
+        context:
+          type: object
+          additionalProperties: true
+
+    CreatedResponse:
+      type: object
+      required: [id, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+
+    FeedItem:
+      type: object
+      required:
+        - event_id
+        - title
+        - datetime_start
+        - venue_name
+        - category
+        - relevance_score
+        - reasons
+        - source_provenance
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        datetime_start:
+          type: string
+          format: date-time
+        venue_name:
+          type: string
+        category:
+          type: string
+        price:
+          type: object
+          properties:
+            min:
+              type: number
+              nullable: true
+            max:
+              type: number
+              nullable: true
+            currency:
+              type: string
+              nullable: true
+        relevance_score:
+          type: number
+        reasons:
+          type: array
+          items:
+            type: string
+        source_provenance:
+          type: array
+          items:
+            type: object
+            required: [source_id, source_name, source_url]
+            properties:
+              source_id:
+                type: string
+                format: uuid
+              source_name:
+                type: string
+              source_url:
+                type: string
+
+    FeedResponse:
+      type: object
+      required: [items, coverage_warning, request_id]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedItem'
+        coverage_warning:
+          type: string
+          nullable: true
+        request_id:
+          type: string
+
+    EventOccurrence:
+      type: object
+      required: [datetime_start, timezone]
+      properties:
+        datetime_start:
+          type: string
+          format: date-time
+        datetime_end:
+          type: string
+          format: date-time
+          nullable: true
+        timezone:
+          type: string
+
+    EventDetail:
+      type: object
+      required: [event_id, title, category, occurrences, source_provenance]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        category:
+          type: string
+        subcategory:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        venue_name:
+          type: string
+          nullable: true
+        venue_address:
+          type: string
+          nullable: true
+        occurrences:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventOccurrence'
+        source_provenance:
+          type: array
+          items:
+            type: object
+            required: [source_id, source_name, source_url]
+            properties:
+              source_id:
+                type: string
+                format: uuid
+              source_name:
+                type: string
+              source_url:
+                type: string
+
+    EventFeedbackRequest:
+      type: object
+      required: [signal, context]
+      properties:
+        signal:
+          type: string
+          enum: [interested, not_for_me, already_knew]
+        context:
+          type: object
+          additionalProperties: true
+
+    NotificationLog:
+      type: object
+      required: [id, event_id, priority, title, body, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        priority:
+          type: string
+          enum: [low, medium, high]
+        title:
+          type: string
+        body:
+          type: string
+        status:
+          type: string
+          enum: [queued, sent, suppressed, failed]
+        sent_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    TestNotificationRequest:
+      type: object
+      required: [event_id, reason]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        reason:
+          type: string
+
+    Source:
+      type: object
+      required:
+        - id
+        - name
+        - url
+        - source_type
+        - access_method
+        - status
+        - policy_risk_score
+        - quality_score
+        - crawl_frequency_minutes
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        source_type:
+          type: string
+        access_method:
+          type: string
+          enum: [api, rss, ics, html_extract, manual]
+        status:
+          type: string
+          enum: [pending, approved, rejected, paused]
+        policy_risk_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        quality_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        crawl_frequency_minutes:
+          type: integer
+          minimum: 15
+        terms_url:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+
+    SourceCreateRequest:
+      type: object
+      required: [name, url, source_type, access_method]
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        source_type:
+          type: string
+        access_method:
+          type: string
+          enum: [api, rss, ics, html_extract, manual]
+        terms_url:
+          type: string
+          nullable: true
+
+    SourceApprovalRequest:
+      type: object
+      required: [decision, policy_risk_score, quality_score, notes]
+      properties:
+        decision:
+          type: string
+          enum: [approved, rejected, needs_manual_review]
+        policy_risk_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        quality_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        notes:
+          type: string
+
+    IngestionRunRequest:
+      type: object
+      required: [source_ids, reason]
+      properties:
+        source_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uuid
+        reason:
+          type: string
