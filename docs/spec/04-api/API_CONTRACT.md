@@ -43,8 +43,16 @@ Common status codes:
 ### `GET /health`
 
 - Auth: none
+- Request schema: none
+- Response schema: `{ status: string }`
 - Purpose: liveness check
-- 200 response: `{ "status": "ok" }`
+- 200 response example:
+
+```json
+{
+  "status": "ok"
+}
+```
 
 ## Auth
 
@@ -52,7 +60,9 @@ Common status codes:
 
 - Auth: none
 - Required for prototype
-- Request:
+- Request schema: `DemoLoginRequest`
+- Response schema: `AuthSessionResponse`
+- Request example:
 
 ```json
 {
@@ -61,7 +71,7 @@ Common status codes:
 }
 ```
 
-- 200 response:
+- 200 response example:
 
 ```json
 {
@@ -79,7 +89,9 @@ Common status codes:
 
 - Auth: none
 - Prototype mode: documented optional endpoint
-- Request:
+- Request schema: `PasswordLoginRequest`
+- Response schema: `AuthSessionResponse`
+- Request example:
 
 ```json
 {
@@ -89,13 +101,28 @@ Common status codes:
 ```
 
 - 200 response mirrors demo-login token response
+- 200 response example:
+
+```json
+{
+  "access_token": "token",
+  "token_type": "bearer",
+  "expires_at": "2026-02-28T22:00:00+08:00",
+  "user": {
+    "id": "uuid",
+    "display_name": "user"
+  }
+}
+```
 
 ## Preferences and Interactions
 
 ### `GET /v1/preferences`
 
 - Auth: required
-- 200 response:
+- Request schema: none
+- Response schema: `PreferenceProfile`
+- 200 response example:
 
 ```json
 {
@@ -114,13 +141,45 @@ Common status codes:
 ### `PUT /v1/preferences`
 
 - Auth: required
+- Request schema: `PreferenceProfileInput`
+- Response schema: `PreferenceProfile`
 - Request body uses same shape as GET response without `user_id` and `updated_at`
-- 200 response returns persisted profile
+- Request example:
+
+```json
+{
+  "preferred_categories": ["events", "food", "nightlife"],
+  "preferred_subcategories": ["indie_music"],
+  "budget_mode": "moderate",
+  "preferred_distance_km": 8,
+  "active_days": "both",
+  "preferred_times": ["evening"],
+  "anti_preferences": ["large_crowds"]
+}
+```
+
+- 200 response example:
+
+```json
+{
+  "user_id": "uuid",
+  "preferred_categories": ["events", "food", "nightlife"],
+  "preferred_subcategories": ["indie_music"],
+  "budget_mode": "moderate",
+  "preferred_distance_km": 8,
+  "active_days": "both",
+  "preferred_times": ["evening"],
+  "anti_preferences": ["large_crowds"],
+  "updated_at": "2026-02-28T12:00:00+08:00"
+}
+```
 
 ### `POST /v1/interactions`
 
 - Auth: required
-- Request:
+- Request schema: `InteractionCreateRequest`
+- Response schema: `CreatedResponse`
+- Request example:
 
 ```json
 {
@@ -132,7 +191,7 @@ Common status codes:
 }
 ```
 
-- 201 response:
+- 201 response example:
 
 ```json
 {
@@ -146,13 +205,15 @@ Common status codes:
 ### `GET /v1/feed`
 
 - Auth: required
+- Request schema: query params `lat`, `lng`, `time_window`, `budget`, `mode`
+- Response schema: `FeedResponse`
 - Query params:
   - `lat` number required
   - `lng` number required
   - `time_window` enum: `today|tonight|weekend|next_7_days`
   - `budget` enum: `budget|moderate|premium|any`
   - `mode` enum: `solo|date|group`
-- 200 response:
+- 200 response example:
 
 ```json
 {
@@ -187,12 +248,42 @@ Common status codes:
 ### `GET /v1/events/{event_id}`
 
 - Auth: required
-- 200 response contains full canonical event + occurrences + provenance links.
+- Request schema: path param `event_id: uuid`
+- Response schema: `EventDetail`
+- 200 response example:
+
+```json
+{
+  "event_id": "uuid",
+  "title": "Rooftop Jazz Session",
+  "category": "concert",
+  "subcategory": "indie_music",
+  "description": "Sunset live jazz with city skyline.",
+  "venue_name": "Esplanade",
+  "venue_address": "1 Esplanade Dr",
+  "occurrences": [
+    {
+      "datetime_start": "2026-03-01T20:00:00+08:00",
+      "datetime_end": "2026-03-01T22:00:00+08:00",
+      "timezone": "Asia/Singapore"
+    }
+  ],
+  "source_provenance": [
+    {
+      "source_id": "uuid",
+      "source_name": "Example Source",
+      "source_url": "https://example.com/event"
+    }
+  ]
+}
+```
 
 ### `POST /v1/events/{event_id}/feedback`
 
 - Auth: required
-- Request:
+- Request schema: path param `event_id: uuid` + `EventFeedbackRequest`
+- Response schema: `CreatedResponse`
+- Request example:
 
 ```json
 {
@@ -203,20 +294,48 @@ Common status codes:
 }
 ```
 
-- 201 response: interaction id + created timestamp
+- 201 response example:
+
+```json
+{
+  "id": "uuid",
+  "created_at": "2026-02-28T12:02:00+08:00"
+}
+```
 
 ## Notifications
 
 ### `GET /v1/notifications`
 
 - Auth: required
+- Request schema: query param `limit` integer (1..100)
+- Response schema: `{ items: NotificationLog[] }`
 - Query params: `limit` optional default 20 max 100
-- 200 response returns chronologically descending notification logs
+- 200 response example:
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "event_id": "uuid",
+      "priority": "high",
+      "title": "AFF Alert: Rooftop Jazz Session",
+      "body": "high_relevance_time_sensitive",
+      "status": "queued",
+      "sent_at": null,
+      "created_at": "2026-02-28T21:00:00+08:00"
+    }
+  ]
+}
+```
 
 ### `POST /v1/notifications/test`
 
 - Auth: required
-- Request:
+- Request schema: `TestNotificationRequest`
+- Response schema: `TestNotificationResponse`
+- Request example:
 
 ```json
 {
@@ -225,7 +344,7 @@ Common status codes:
 }
 ```
 
-- 202 response:
+- 202 response example:
 
 ```json
 {
@@ -239,19 +358,74 @@ Common status codes:
 ### `GET /v1/admin/sources`
 
 - Auth: required admin role
+- Request schema: query param `status` optional
+- Response schema: `{ items: Source[] }`
 - Query params: `status` optional
-- 200 response returns list of source records with policy metadata
+- 200 response example:
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "name": "Example Events",
+      "url": "https://example.com/events",
+      "source_type": "ticketing_platform",
+      "access_method": "rss",
+      "status": "approved",
+      "policy_risk_score": 28,
+      "quality_score": 74,
+      "crawl_frequency_minutes": 60,
+      "terms_url": "https://example.com/terms",
+      "notes": "ICS endpoint stable",
+      "deleted_at": null
+    }
+  ]
+}
+```
 
 ### `POST /v1/admin/sources`
 
 - Auth: required admin role
-- Request includes source metadata and policy fields
-- 201 response returns created source
+- Request schema: `SourceCreateRequest`
+- Response schema: `Source`
+- Request example:
+
+```json
+{
+  "name": "Example Events",
+  "url": "https://example.com/events",
+  "source_type": "ticketing_platform",
+  "access_method": "rss",
+  "terms_url": "https://example.com/terms"
+}
+```
+
+- 201 response example:
+
+```json
+{
+  "id": "uuid",
+  "name": "Example Events",
+  "url": "https://example.com/events",
+  "source_type": "ticketing_platform",
+  "access_method": "rss",
+  "status": "pending",
+  "policy_risk_score": 0,
+  "quality_score": 0,
+  "crawl_frequency_minutes": 60,
+  "terms_url": "https://example.com/terms",
+  "notes": null,
+  "deleted_at": null
+}
+```
 
 ### `POST /v1/admin/sources/{source_id}/approve`
 
 - Auth: required admin role
-- Request:
+- Request schema: path param `source_id: uuid` + `SourceApprovalRequest`
+- Response schema: `Source`
+- Request example:
 
 ```json
 {
@@ -262,12 +436,31 @@ Common status codes:
 }
 ```
 
-- 200 response returns updated source status
+- 200 response example:
+
+```json
+{
+  "id": "uuid",
+  "name": "Example Events",
+  "url": "https://example.com/events",
+  "source_type": "ticketing_platform",
+  "access_method": "rss",
+  "status": "approved",
+  "policy_risk_score": 28,
+  "quality_score": 74,
+  "crawl_frequency_minutes": 60,
+  "terms_url": "https://example.com/terms",
+  "notes": "ICS endpoint stable",
+  "deleted_at": null
+}
+```
 
 ### `POST /v1/admin/ingestion/run`
 
 - Auth: required admin role
-- Request:
+- Request schema: `{ source_ids: uuid[], reason: string }`
+- Response schema: `{ job_id: uuid, queued_count: integer }`
+- Request example:
 
 ```json
 {
@@ -276,7 +469,7 @@ Common status codes:
 }
 ```
 
-- 202 response:
+- 202 response example:
 
 ```json
 {
