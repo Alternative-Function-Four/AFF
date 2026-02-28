@@ -12,6 +12,7 @@ import { SectionCard } from "../../src/shared/ui/SectionCard";
 import { SegmentedControlField } from "../../src/shared/ui/SegmentedControlField";
 import { SingleSelectField } from "../../src/shared/ui/SingleSelectField";
 import { StatusMessage } from "../../src/shared/ui/StatusMessage";
+import { buttonStyles, palette, textStyles, typography } from "../../src/shared/ui/theme";
 
 type SourceStatusFilter = SourceStatus | "all";
 
@@ -113,46 +114,36 @@ const styles = StyleSheet.create({
     flexWrap: "wrap"
   },
   primaryBtn: {
-    minHeight: 44,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#1E4FDB"
+    ...buttonStyles.primaryBtn
   },
   primaryLabel: {
-    color: "#FFFFFF",
-    fontWeight: "700"
+    ...buttonStyles.primaryLabel
   },
   secondaryBtn: {
-    minHeight: 44,
+    ...buttonStyles.secondaryBtn,
     flex: 1,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#B9C6D3",
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 12
+    minWidth: 120
   },
   secondaryLabel: {
-    color: "#223B53",
-    fontWeight: "600"
+    ...buttonStyles.secondaryLabel
   },
   itemRow: {
     borderTopWidth: 1,
-    borderTopColor: "#E3E8EF",
-    paddingTop: 10,
-    gap: 4
+    borderTopColor: palette.border,
+    paddingTop: 12,
+    gap: 6
   },
   title: {
-    fontWeight: "700",
-    color: "#162B40"
+    color: palette.textPrimary,
+    fontFamily: typography.body,
+    fontWeight: "700"
   },
   meta: {
-    color: "#3D5064"
+    ...textStyles.body
   },
   link: {
-    color: "#1E4FDB",
-    fontWeight: "600"
+    color: palette.accent,
+    fontFamily: typography.body,
+    fontWeight: "700"
   }
 });

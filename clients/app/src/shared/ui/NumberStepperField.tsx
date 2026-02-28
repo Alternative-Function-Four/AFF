@@ -1,5 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { palette, textStyles, typography } from "./theme";
+
 interface NumberStepperFieldProps {
   label: string;
   value: number;
@@ -55,32 +57,32 @@ export function NumberStepperField({
 
 const styles = StyleSheet.create({
   wrap: {
-    gap: 6
+    gap: 8
   },
   label: {
-    color: "#12263A",
-    fontWeight: "600"
+    ...textStyles.label
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8
+    gap: 10
   },
   stepperBtn: {
     width: 44,
     minHeight: 44,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#CCD5E0",
-    backgroundColor: "#FFFFFF",
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
     alignItems: "center",
     justifyContent: "center"
   },
   disabled: {
-    opacity: 0.5
+    opacity: 0.45
   },
   btnLabel: {
-    color: "#1A3149",
+    color: palette.textPrimary,
+    fontFamily: typography.body,
     fontWeight: "700",
     fontSize: 18,
     lineHeight: 18
@@ -88,20 +90,20 @@ const styles = StyleSheet.create({
   valueWrap: {
     flex: 1,
     minHeight: 44,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#CCD5E0",
+    borderColor: palette.border,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFFFFF"
+    backgroundColor: palette.surfaceMuted
   },
   value: {
-    color: "#1A3149",
+    color: palette.textPrimary,
+    fontFamily: typography.body,
     fontWeight: "700",
     fontSize: 16
   },
   hint: {
-    color: "#607184",
-    fontSize: 12
+    ...textStyles.helper
   }
 });

@@ -11,6 +11,11 @@
       "sourceType": "well-known",
       "computedHash": "f1b20807115f95c8cc61ce71b4ab686c2d037c972c701d67d1999fbb851e574e"
     },
+    "mitsuhiko-frontend-design": {
+      "source": "smithery.ai",
+      "sourceType": "well-known",
+      "computedHash": "5411dd00c5322a72176656ce5ccb7282eb343fb5fc51e88562edf80fa0d0af67"
+    },
     "smithery-ai-cli": {
       "source": "smithery/ai",
       "sourceType": "well-known",

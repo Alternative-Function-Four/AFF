@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { FieldOption } from "./fieldTypes";
+import { palette, textStyles, typography } from "./theme";
 
 interface SingleSelectFieldProps<T extends string> {
   label: string;
@@ -51,70 +52,69 @@ export function SingleSelectField<T extends string>({
 
 const styles = StyleSheet.create({
   wrap: {
-    gap: 6
-  },
-  label: {
-    color: "#12263A",
-    fontWeight: "600"
-  },
-  options: {
     gap: 8
   },
+  label: {
+    ...textStyles.label
+  },
+  options: {
+    gap: 10
+  },
   optionRow: {
-    minHeight: 44,
-    borderRadius: 10,
+    minHeight: 46,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#CCD5E0",
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     flexDirection: "row",
-    gap: 10,
+    gap: 12,
     alignItems: "center"
   },
   optionRowSelected: {
-    borderColor: "#1E4FDB",
-    backgroundColor: "#EEF3FF"
+    borderColor: palette.accentSoftBorder,
+    backgroundColor: palette.accentSoft
   },
   radio: {
     width: 18,
     height: 18,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#7C8D9F",
+    borderColor: palette.borderStrong,
     alignItems: "center",
     justifyContent: "center"
   },
   radioSelected: {
-    borderColor: "#1E4FDB"
+    borderColor: palette.accentPressed
   },
   radioDot: {
     width: 10,
     height: 10,
     borderRadius: 999,
-    backgroundColor: "#1E4FDB"
+    backgroundColor: palette.accent
   },
   textWrap: {
     flex: 1,
-    gap: 2
+    gap: 4
   },
   optionLabel: {
-    color: "#1A3149",
-    fontWeight: "600"
+    color: palette.textPrimary,
+    fontFamily: typography.body,
+    fontWeight: "700"
   },
   optionLabelSelected: {
-    color: "#11388E"
+    color: palette.textPrimary
   },
   optionDescription: {
-    color: "#607184",
-    fontSize: 12
+    ...textStyles.helper
   },
   hint: {
-    color: "#607184",
-    fontSize: 12
+    ...textStyles.helper
   },
   error: {
-    color: "#D92D20",
+    color: palette.danger,
+    fontFamily: typography.body,
     fontSize: 12
   }
 });

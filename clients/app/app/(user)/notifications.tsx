@@ -6,6 +6,7 @@ import { formatDateTimeSg } from "../../src/shared/time/format";
 import { Screen } from "../../src/shared/ui/Screen";
 import { SectionCard } from "../../src/shared/ui/SectionCard";
 import { StatusMessage } from "../../src/shared/ui/StatusMessage";
+import { buttonStyles, palette, textStyles, typography } from "../../src/shared/ui/theme";
 
 export default function NotificationsScreen(): JSX.Element {
   const notifications = useNotificationsQuery(20);
@@ -50,30 +51,23 @@ export default function NotificationsScreen(): JSX.Element {
 
 const styles = StyleSheet.create({
   refreshBtn: {
-    minHeight: 44,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#B9C6D3",
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12
+    ...buttonStyles.secondaryBtn
   },
   refreshLabel: {
-    color: "#223B53",
-    fontWeight: "600"
+    ...buttonStyles.secondaryLabel
   },
   itemRow: {
     borderTopWidth: 1,
-    borderTopColor: "#E3E8EF",
-    paddingTop: 10,
-    gap: 4
+    borderTopColor: palette.border,
+    paddingTop: 12,
+    gap: 6
   },
   title: {
-    fontWeight: "700",
-    color: "#162B40"
+    color: palette.textPrimary,
+    fontFamily: typography.body,
+    fontWeight: "700"
   },
   meta: {
-    color: "#3D5064"
+    ...textStyles.body
   }
 });

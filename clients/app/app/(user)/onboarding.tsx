@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "expo-router";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { ActivityIndicator, Pressable, StyleSheet, Text } from "react-native";
 
 import {
@@ -26,12 +26,17 @@ import { SectionCard } from "../../src/shared/ui/SectionCard";
 import { SegmentedControlField } from "../../src/shared/ui/SegmentedControlField";
 import { StatusMessage } from "../../src/shared/ui/StatusMessage";
 import { TagInputField } from "../../src/shared/ui/TagInputField";
+import { SingaporeLocationPickerField } from "../../src/shared/ui/SingaporeLocationPickerField";
+import { buttonStyles, textStyles } from "../../src/shared/ui/theme";
 
 const defaultValues = toPreferenceFormDefaults({
   preferred_categories: ["events", "food", "nightlife"],
   preferred_subcategories: ["indie_music"],
   budget_mode: "moderate",
   preferred_distance_km: 8,
+  home_lat: 1.3521,
+  home_lng: 103.8198,
+  home_address: "Singapore",
   active_days: "both",
   preferred_times: ["evening"],
   anti_preferences: ["large_crowds"]
@@ -43,11 +48,25 @@ export default function OnboardingScreen(): JSX.Element {
 
   const {
     control,
+    setValue,
     handleSubmit,
     formState: { errors }
   } = useForm<PreferencesFormValues>({
     resolver: zodResolver(preferencesFormSchema),
     defaultValues
+  });
+
+  const homeLat = useWatch({
+    control,
+    name: "home_lat"
+  });
+  const homeLng = useWatch({
+    control,
+    name: "home_lng"
+  });
+  const homeAddress = useWatch({
+    control,
+    name: "home_address"
   });
 
   const onSubmit = handleSubmit((values) => {
@@ -119,6 +138,21 @@ export default function OnboardingScreen(): JSX.Element {
             />
           )}
         />
+        <SingaporeLocationPickerField
+          label="Home location"
+          value={{
+            lat: homeLat,
+            lng: homeLng,
+            address: homeAddress
+          }}
+          onChange={(next) => {
+            setValue("home_lat", next.lat, { shouldDirty: true, shouldValidate: true });
+            setValue("home_lng", next.lng, { shouldDirty: true, shouldValidate: true });
+            setValue("home_address", next.address, { shouldDirty: true, shouldValidate: true });
+          }}
+          hint="Set your home area to make your feed location-aware from day one."
+          error={errors.home_lat?.message || errors.home_lng?.message || errors.home_address?.message}
+        />
         <Controller
           control={control}
           name="active_days"
@@ -165,18 +199,12 @@ export default function OnboardingScreen(): JSX.Element {
 
 const styles = StyleSheet.create({
   subtitle: {
-    color: "#445466",
-    lineHeight: 20
+    ...textStyles.subtitle
   },
   primaryBtn: {
-    minHeight: 44,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#1E4FDB"
+    ...buttonStyles.primaryBtn
   },
   primaryLabel: {
-    color: "#FFFFFF",
-    fontWeight: "700"
+    ...buttonStyles.primaryLabel
   }
 });

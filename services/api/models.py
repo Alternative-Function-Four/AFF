@@ -165,6 +165,9 @@ class PreferenceProfileInput(BaseModel):
     preferred_subcategories: list[str]
     budget_mode: BudgetMode
     preferred_distance_km: float = Field(ge=0, le=50)
+    home_lat: float = Field(default=1.3521, ge=1.15, le=1.50)
+    home_lng: float = Field(default=103.8198, ge=103.55, le=104.10)
+    home_address: str = Field(default="Singapore", min_length=1, max_length=255)
     active_days: ActiveDays
     preferred_times: list[PreferredTime]
     anti_preferences: list[str]

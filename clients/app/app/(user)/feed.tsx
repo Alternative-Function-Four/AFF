@@ -1,8 +1,9 @@
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useFeedbackMutation, useFeedQuery, type FeedParams } from "../../src/features/feed/api";
+import { usePreferencesQuery, useSavePreferencesMutation } from "../../src/features/preferences/api";
 import { APIClientError } from "../../src/shared/api/client";
 import { env } from "../../src/shared/config/env";
 import { budgetModeOptions, feedModeOptions, timeWindowOptions } from "../../src/shared/config/options";
@@ -10,12 +11,13 @@ import type { FeedbackSignal, TimeWindow, BudgetMode, FeedMode } from "../../src
 import { useSessionStore } from "../../src/shared/state/session";
 import { trackEvent } from "../../src/shared/telemetry/events";
 import { formatDateTimeSg, formatSgd } from "../../src/shared/time/format";
-import { FormField } from "../../src/shared/ui/FormField";
+import { SingaporeLocationPickerField } from "../../src/shared/ui/SingaporeLocationPickerField";
 import { Screen } from "../../src/shared/ui/Screen";
 import { SectionCard } from "../../src/shared/ui/SectionCard";
 import { SegmentedControlField } from "../../src/shared/ui/SegmentedControlField";
 import { SingleSelectField } from "../../src/shared/ui/SingleSelectField";
 import { StatusMessage } from "../../src/shared/ui/StatusMessage";
+import { buttonStyles, textStyles } from "../../src/shared/ui/theme";
 
 const feedbackSignals: FeedbackSignal[] = ["interested", "not_for_me", "already_knew"];
 
@@ -42,25 +44,41 @@ function isMode(value: string): value is FeedMode {
 export default function FeedScreen(): JSX.Element {
   const router = useRouter();
   const session = useSessionStore((state) => state.session);
+  const preferencesQuery = usePreferencesQuery();
+  const savePreferences = useSavePreferencesMutation();
 
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [latText, setLatText] = useState(String(initialFilters.lat));
-  const [lngText, setLngText] = useState(String(initialFilters.lng));
+  const [location, setLocation] = useState({
+    lat: initialFilters.lat,
+    lng: initialFilters.lng,
+    address: "Singapore"
+  });
+  const [locationDirty, setLocationDirty] = useState(false);
   const [timeWindowText, setTimeWindowText] = useState<TimeWindow>(initialFilters.time_window);
   const [budgetText, setBudgetText] = useState<BudgetMode>(initialFilters.budget);
   const [modeText, setModeText] = useState<FeedMode>(initialFilters.mode);
 
+  useEffect(() => {
+    if (!preferencesQuery.data || locationDirty) {
+      return;
+    }
+
+    setLocation({
+      lat: preferencesQuery.data.home_lat,
+      lng: preferencesQuery.data.home_lng,
+      address: preferencesQuery.data.home_address
+    });
+  }, [locationDirty, preferencesQuery.data]);
+
   const filters = useMemo(() => {
-    const lat = Number(latText);
-    const lng = Number(lngText);
     return {
-      lat: Number.isFinite(lat) ? lat : env.defaultLat,
-      lng: Number.isFinite(lng) ? lng : env.defaultLng,
+      lat: location.lat,
+      lng: location.lng,
       time_window: isTimeWindow(timeWindowText) ? timeWindowText : "tonight",
       budget: isBudget(budgetText) ? budgetText : "any",
       mode: isMode(modeText) ? modeText : "solo"
     } satisfies FeedParams;
-  }, [budgetText, latText, lngText, modeText, timeWindowText]);
+  }, [budgetText, location.lat, location.lng, modeText, timeWindowText]);
 
   const feedQuery = useFeedQuery(filters);
   const feedbackMutation = useFeedbackMutation();
@@ -132,20 +150,65 @@ export default function FeedScreen(): JSX.Element {
 
         {showAdvancedFilters ? (
           <>
-            <FormField
-              label="Latitude"
-              value={latText}
-              onChangeText={setLatText}
-              keyboardType="decimal-pad"
-              hint="If left invalid, we'll use Singapore city center."
+            <SingaporeLocationPickerField
+              label="Location"
+              value={location}
+              onChange={(next) => {
+                setLocation(next);
+                setLocationDirty(true);
+              }}
+              hint="This updates your feed filters immediately. Save to tie this location to your account."
             />
-            <FormField
-              label="Longitude"
-              value={lngText}
-              onChangeText={setLngText}
-              keyboardType="decimal-pad"
-              hint="If left invalid, we'll use Singapore city center."
-            />
+            <View style={styles.actionsRow}>
+              <Pressable
+                accessibilityRole="button"
+                style={styles.secondaryBtn}
+                onPress={() => {
+                  if (!preferencesQuery.data) {
+                    return;
+                  }
+                  setLocation({
+                    lat: preferencesQuery.data.home_lat,
+                    lng: preferencesQuery.data.home_lng,
+                    address: preferencesQuery.data.home_address
+                  });
+                  setLocationDirty(false);
+                }}
+                disabled={!preferencesQuery.data}
+              >
+                <Text style={styles.secondaryLabel}>Use Saved Home Location</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                style={styles.primaryBtn}
+                onPress={() => {
+                  if (!preferencesQuery.data) {
+                    return;
+                  }
+
+                  const profile = preferencesQuery.data;
+                  savePreferences.mutate({
+                    preferred_categories: profile.preferred_categories,
+                    preferred_subcategories: profile.preferred_subcategories,
+                    budget_mode: profile.budget_mode,
+                    preferred_distance_km: profile.preferred_distance_km,
+                    home_lat: location.lat,
+                    home_lng: location.lng,
+                    home_address: location.address,
+                    active_days: profile.active_days,
+                    preferred_times: profile.preferred_times,
+                    anti_preferences: profile.anti_preferences
+                  });
+                }}
+                disabled={savePreferences.isPending || !preferencesQuery.data}
+              >
+                {savePreferences.isPending ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.primaryLabel}>Save As Home Location</Text>
+                )}
+              </Pressable>
+            </View>
           </>
         ) : null}
 
@@ -177,6 +240,8 @@ export default function FeedScreen(): JSX.Element {
       ) : null}
 
       {errorMessage ? <StatusMessage tone="error" message={errorMessage} /> : null}
+      {savePreferences.isSuccess ? <StatusMessage tone="success" message="Home location saved to your account." /> : null}
+      {savePreferences.error ? <StatusMessage tone="error" message="Unable to save home location." /> : null}
 
       {feedQuery.data?.coverage_warning ? <StatusMessage tone="info" message={feedQuery.data.coverage_warning} /> : null}
 
@@ -222,8 +287,7 @@ export default function FeedScreen(): JSX.Element {
 
 const styles = StyleSheet.create({
   meta: {
-    color: "#3D5064",
-    lineHeight: 19
+    ...textStyles.body
   },
   actionsRow: {
     flexDirection: "row",
@@ -231,44 +295,24 @@ const styles = StyleSheet.create({
     flexWrap: "wrap"
   },
   primaryBtn: {
-    minHeight: 44,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#1E4FDB"
+    ...buttonStyles.primaryBtn
   },
   primaryLabel: {
-    color: "#FFFFFF",
-    fontWeight: "700"
+    ...buttonStyles.primaryLabel
   },
   secondaryBtn: {
-    minHeight: 44,
+    ...buttonStyles.secondaryBtn,
     flexGrow: 1,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#B9C6D3",
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 12
+    minWidth: 132
   },
   secondaryLabel: {
-    color: "#223B53",
-    fontWeight: "600"
+    ...buttonStyles.secondaryLabel
   },
   feedbackBtn: {
-    minHeight: 44,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#91A0AF",
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 10
+    ...buttonStyles.subtleChipBtn
   },
   feedbackLabel: {
-    fontSize: 12,
-    color: "#1A3149",
-    fontWeight: "600"
+    ...buttonStyles.subtleChipLabel,
+    textTransform: "capitalize"
   }
 });

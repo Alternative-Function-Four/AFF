@@ -11,6 +11,7 @@ import { SectionCard } from "../../src/shared/ui/SectionCard";
 import { SingleSelectField } from "../../src/shared/ui/SingleSelectField";
 import { StatusMessage } from "../../src/shared/ui/StatusMessage";
 import { setAllSelections } from "../../src/shared/ui/selection";
+import { buttonStyles, textStyles } from "../../src/shared/ui/theme";
 
 type IngestionReason = "scheduled_sync" | "manual_retry" | "policy_recheck";
 
@@ -127,32 +128,20 @@ const styles = StyleSheet.create({
     flexWrap: "wrap"
   },
   meta: {
-    color: "#3D5064"
+    ...textStyles.body
   },
   primaryBtn: {
-    minHeight: 44,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#1E4FDB"
+    ...buttonStyles.primaryBtn
   },
   primaryLabel: {
-    color: "#FFFFFF",
-    fontWeight: "700"
+    ...buttonStyles.primaryLabel
   },
   secondaryBtn: {
-    minHeight: 44,
+    ...buttonStyles.secondaryBtn,
     flex: 1,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#B9C6D3",
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 12
+    minWidth: 160
   },
   secondaryLabel: {
-    color: "#223B53",
-    fontWeight: "600"
+    ...buttonStyles.secondaryLabel
   }
 });

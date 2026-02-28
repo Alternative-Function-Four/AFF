@@ -12,6 +12,7 @@ import { Screen } from "../../../src/shared/ui/Screen";
 import { SectionCard } from "../../../src/shared/ui/SectionCard";
 import { SegmentedControlField } from "../../../src/shared/ui/SegmentedControlField";
 import { StatusMessage } from "../../../src/shared/ui/StatusMessage";
+import { buttonStyles, textStyles } from "../../../src/shared/ui/theme";
 
 export default function AdminSourceDetailScreen(): JSX.Element {
   const router = useRouter();
@@ -109,30 +110,18 @@ export default function AdminSourceDetailScreen(): JSX.Element {
 
 const styles = StyleSheet.create({
   meta: {
-    color: "#3D5064"
+    ...textStyles.body
   },
   primaryBtn: {
-    minHeight: 44,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#1E4FDB"
+    ...buttonStyles.primaryBtn
   },
   primaryLabel: {
-    color: "#FFFFFF",
-    fontWeight: "700"
+    ...buttonStyles.primaryLabel
   },
   secondaryBtn: {
-    minHeight: 44,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#B9C6D3",
-    backgroundColor: "#FFFFFF"
+    ...buttonStyles.secondaryBtn
   },
   secondaryLabel: {
-    color: "#223B53",
-    fontWeight: "600"
+    ...buttonStyles.secondaryLabel
   }
 });
