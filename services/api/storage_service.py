@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Sequence
 from typing import Any
 from uuid import UUID, uuid4
@@ -62,6 +62,247 @@ def _as_sg_datetime(value: datetime) -> datetime:
 
 def _now_sg() -> datetime:
     return _as_sg_datetime(datetime.now())
+
+
+DEFAULT_SEED_TOPICS: tuple[tuple[str, str], ...] = (
+    ("events", "Events"),
+    ("food", "Food"),
+    ("nightlife", "Nightlife"),
+    ("sports", "Sports"),
+    ("sightseeing", "Sightseeing"),
+    ("museums", "Museums"),
+    ("outdoors", "Outdoors"),
+    ("movies", "Movies"),
+)
+
+DEFAULT_SEED_SOURCES: tuple[dict[str, str], ...] = (
+    {
+        "key": "events-calendar",
+        "name": "Singapore Event Calendar",
+        "url": "https://events.example.sg/calendar",
+        "source_type": "events",
+        "topic_slug": "events",
+        "page_title": "Singapore Event Calendar",
+        "description": "Curated calendar of upcoming events in Singapore.",
+    },
+    {
+        "key": "hawker-guide",
+        "name": "Hawker Bites Guide",
+        "url": "https://food.example.sg/hawker-guide",
+        "source_type": "food",
+        "topic_slug": "food",
+        "page_title": "Hawker Bites Guide",
+        "description": "Daily food picks and hawker-centered happenings.",
+    },
+    {
+        "key": "afterdark",
+        "name": "AfterDark SG",
+        "url": "https://nightlife.example.sg/listings",
+        "source_type": "nightlife",
+        "topic_slug": "nightlife",
+        "page_title": "AfterDark SG Listings",
+        "description": "Live music and nightlife listings across Singapore.",
+    },
+)
+
+DEFAULT_SEED_EVENTS: tuple[dict[str, Any], ...] = (
+    {
+        "content_hash": "seed-event-hawker-tasting",
+        "title": "Hawker Tasting Trail",
+        "category": "food",
+        "subcategory": "hawker",
+        "description": "Guided evening food crawl through Chinatown hawker stalls.",
+        "venue_name": "Chinatown Complex",
+        "venue_address": "335 Smith St, Singapore 050335",
+        "indoor_outdoor": "indoor",
+        "source_key": "hawker-guide",
+        "event_url": "https://food.example.sg/hawker-trail",
+        "days_offset": 1,
+        "hours_offset": 2,
+        "duration_hours": 3,
+        "price_min": 8.0,
+        "price_max": 18.0,
+    },
+    {
+        "content_hash": "seed-event-rooftop-jazz",
+        "title": "Rooftop Jazz Session",
+        "category": "nightlife",
+        "subcategory": "live_music",
+        "description": "Sunset jazz set with skyline views and craft mocktails.",
+        "venue_name": "Esplanade Roof Terrace",
+        "venue_address": "8 Raffles Ave, Singapore 039802",
+        "indoor_outdoor": "outdoor",
+        "source_key": "afterdark",
+        "event_url": "https://nightlife.example.sg/rooftop-jazz",
+        "days_offset": 2,
+        "hours_offset": 4,
+        "duration_hours": 2,
+        "price_min": 25.0,
+        "price_max": 45.0,
+    },
+    {
+        "content_hash": "seed-event-marina-art-walk",
+        "title": "Marina Bay Art Walk",
+        "category": "events",
+        "subcategory": "art",
+        "description": "Open-air guided walk featuring public art and light installations.",
+        "venue_name": "Marina Bay Waterfront",
+        "venue_address": "10 Bayfront Ave, Singapore 018956",
+        "indoor_outdoor": "outdoor",
+        "source_key": "events-calendar",
+        "event_url": "https://events.example.sg/marina-art-walk",
+        "days_offset": 3,
+        "hours_offset": 1,
+        "duration_hours": 2,
+        "price_min": 0.0,
+        "price_max": 0.0,
+    },
+)
+
+
+async def _ensure_default_topics_sources_events(session: AsyncSession) -> None:
+    now = _now_sg()
+
+    topics = (await session.execute(select(Topic))).scalars().all()
+    topic_by_slug = {item.slug: item for item in topics}
+    for slug, name in DEFAULT_SEED_TOPICS:
+        if slug in topic_by_slug:
+            continue
+        topic = Topic(
+            id=str(uuid4()),
+            slug=slug,
+            name=name,
+            city="Singapore",
+            description=f"{name} topics for discovery and ingestion workflows",
+            is_active=True,
+            created_at=now,
+        )
+        session.add(topic)
+        topic_by_slug[slug] = topic
+    await session.flush()
+
+    seed_urls = [item["url"] for item in DEFAULT_SEED_SOURCES]
+    existing_sources = (
+        await session.execute(select(Source).where(Source.url.in_(seed_urls)))
+    ).scalars().all()
+    source_by_url = {item.url: item for item in existing_sources}
+    source_by_key: dict[str, Source] = {}
+    for spec in DEFAULT_SEED_SOURCES:
+        source = source_by_url.get(spec["url"])
+        if source is None:
+            source = Source(
+                id=str(uuid4()),
+                name=spec["name"],
+                url=spec["url"],
+                source_type=spec["source_type"],
+                access_method=SourceAccessMethod.html_extract.value,
+                status=SourceStatus.approved.value,
+                policy_risk_score=15,
+                quality_score=82,
+                crawl_frequency_minutes=180,
+                terms_url=None,
+                notes="Default seeded source",
+                page_title=spec["page_title"],
+                discovery_description=spec["description"],
+                discovery_metadata={"seeded": True},
+                discovered_at=now,
+                deleted_at=None,
+            )
+            session.add(source)
+            source_by_url[source.url] = source
+        source_by_key[spec["key"]] = source
+    await session.flush()
+
+    seeded_source_ids = [item.id for item in source_by_key.values()]
+    existing_links = (
+        await session.execute(
+            select(SourceTopicLink).where(SourceTopicLink.source_id.in_(seeded_source_ids))
+        )
+    ).scalars().all()
+    link_pairs = {(item.source_id, item.topic_id) for item in existing_links}
+    for spec in DEFAULT_SEED_SOURCES:
+        source = source_by_key[spec["key"]]
+        topic = topic_by_slug.get(spec["topic_slug"])
+        if topic is None:
+            continue
+        pair = (source.id, topic.id)
+        if pair in link_pairs:
+            continue
+        session.add(
+            SourceTopicLink(
+                source_id=source.id,
+                topic_id=topic.id,
+                created_at=now,
+            )
+        )
+        link_pairs.add(pair)
+
+    seeded_hashes = [item["content_hash"] for item in DEFAULT_SEED_EVENTS]
+    existing_content_hashes = set(
+        (
+            await session.execute(select(Event.content_hash).where(Event.content_hash.in_(seeded_hashes)))
+        ).scalars().all()
+    )
+
+    for spec in DEFAULT_SEED_EVENTS:
+        if spec["content_hash"] in existing_content_hashes:
+            continue
+        source = source_by_key.get(spec["source_key"])
+        if source is None:
+            continue
+        event_id = str(uuid4())
+        start_at = now + timedelta(days=spec["days_offset"], hours=spec["hours_offset"])
+        end_at = start_at + timedelta(hours=spec["duration_hours"])
+        event = Event(
+            id=event_id,
+            source_id=source.id,
+            source_event_id=spec["content_hash"],
+            title=spec["title"],
+            event_url=spec["event_url"],
+            image_url=None,
+            category=spec["category"],
+            subcategory=spec["subcategory"],
+            description=spec["description"],
+            venue_name=spec["venue_name"],
+            venue_address=spec["venue_address"],
+            indoor_outdoor=spec["indoor_outdoor"],
+            latitude=None,
+            longitude=None,
+            start_datetime=start_at,
+            end_datetime=end_at,
+            price_min=spec["price_min"],
+            price_max=spec["price_max"],
+            currency="SGD",
+            embedding=None,
+            content_hash=spec["content_hash"],
+            status="active",
+            created_at=now,
+            updated_at=now,
+            last_seen_at=now,
+            popularity_score=0.5,
+            quality_score=0.7,
+            published_at=now,
+            deleted_at=None,
+        )
+        event.occurrences = [
+            EventOccurrence(
+                event_id=event_id,
+                datetime_start=start_at,
+                datetime_end=end_at,
+                timezone="Asia/Singapore",
+            )
+        ]
+        event.provenance = [
+            EventProvenance(
+                event_id=event_id,
+                source_id=source.id,
+                source_name=source.name,
+                source_url=source.url,
+            )
+        ]
+        session.add(event)
+
+    await session.commit()
 
 
 def _enum_value(value: str | SourceStatus | SourceAccessMethod) -> str:
@@ -1154,68 +1395,17 @@ async def clear_all_tables(session: AsyncSession) -> None:
 async def seed_initial_data(session: AsyncSession) -> dict[str, Any]:
     await clear_all_tables(session)
     await create_default_metrics(session)
-    now = _now_sg()
-    seed_topics = [
-        ("events", "Events"),
-        ("food", "Food"),
-        ("nightlife", "Nightlife"),
-        ("sports", "Sports"),
-        ("sightseeing", "Sightseeing"),
-        ("museums", "Museums"),
-        ("outdoors", "Outdoors"),
-        ("movies", "Movies"),
-    ]
-    session.add_all(
-        [
-            Topic(
-                id=str(uuid4()),
-                slug=slug,
-                name=name,
-                city="Singapore",
-                description=f"{name} topics for discovery and ingestion workflows",
-                is_active=True,
-                created_at=now,
-            )
-            for slug, name in seed_topics
-        ]
-    )
-    await session.commit()
+    await _ensure_default_topics_sources_events(session)
     return await get_store_snapshot(session)
 
 
 async def ensure_seed_data(session: AsyncSession) -> dict[str, Any]:
     existing_count = await session.scalar(select(func.count(Event.id)))
     topic_count = await session.scalar(select(func.count(Topic.id)))
-    if existing_count and topic_count:
+    source_count = await session.scalar(select(func.count(Source.id)))
+    if existing_count and topic_count and source_count:
         return await get_store_snapshot(session)
-    if not topic_count:
-        now = _now_sg()
-        seed_topics = [
-            ("events", "Events"),
-            ("food", "Food"),
-            ("nightlife", "Nightlife"),
-            ("sports", "Sports"),
-            ("sightseeing", "Sightseeing"),
-            ("museums", "Museums"),
-            ("outdoors", "Outdoors"),
-            ("movies", "Movies"),
-        ]
-        session.add_all(
-            [
-                Topic(
-                    id=str(uuid4()),
-                    slug=slug,
-                    name=name,
-                    city="Singapore",
-                    description=f"{name} topics for discovery and ingestion workflows",
-                    is_active=True,
-                    created_at=now,
-                )
-                for slug, name in seed_topics
-            ]
-        )
-        await session.commit()
-        return await get_store_snapshot(session)
+    await _ensure_default_topics_sources_events(session)
     return await get_store_snapshot(session)
 
 
