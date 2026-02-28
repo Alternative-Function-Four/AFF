@@ -1,0 +1,8 @@
+- Primary stack: Python 3.11 FastAPI API under `services/api`.
+- Uses pydantic models, dataclasses, Enums, and `typing` generics (no raw `Any` unless needed).
+- Typing is explicit throughout app and tests; function signatures and return types are usually annotated.
+- File style favors small, top-level modules (`main.py`, `logic.py`, `models.py`, `routes_*.py`, `state.py`) and relative imports.
+- Naming: snake_case for functions/modules/variables, PascalCase for classes/models, UPPER_CASE for constants.
+- Tests: pytest + TestClient, fixtures in `services/api/tests/conftest.py`, test names are descriptive and assert status codes + payload shapes.
+- Line length appears ~100, and Ruff is used for lint checks.
+- No strict formatting command found; Ruff/pyrefly enforce style/type checks.

@@ -4,18 +4,16 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_contracts import deduplicate_event_agent, normalize_event_agent
-from core import append_ingestion_log, now_sg
-from dependencies import APIError, get_admin_user
+from dependencies import APIError, get_admin_user, get_db_session
+from core import now_sg
 from logic import build_similar_events
 from models import (
-    CandidateEventForDedup,
     EventOccurrence,
     EventRecord,
     EventSourceLinkRecord,
-    FlexibleObject,
-    IngestionJobRecord,
     IngestionRunRequest,
     IngestionRunResponse,
     Price,
@@ -30,20 +28,33 @@ from models import (
     SourceStatus,
     UserRecord,
 )
-from state import STORE
+from state import STORE, refresh_store_from_db
+from storage_service import (
+    append_ingestion_log,
+    create_source,
+    create_event,
+    create_event_source_link,
+    create_ingestion_job,
+    create_raw_event,
+    increment_metric,
+    list_sources,
+    get_source,
+    save_source,
+    source_exists_with_url,
+)
 
 router = APIRouter()
 
 
 @router.get("/v1/admin/sources", response_model=SourceListResponse)
-def get_admin_sources(
+async def get_admin_sources(
     status_filter: SourceStatus | None = Query(default=None, alias="status"),
+    db: AsyncSession = Depends(get_db_session),
     admin_user: UserRecord = Depends(get_admin_user),
 ) -> SourceListResponse:
     del admin_user
-    items = list(STORE.sources.values())
-    if status_filter:
-        items = [source for source in items if source.status == status_filter]
+    await refresh_store_from_db(db)
+    items = await list_sources(db, status_filter=status_filter)
     return SourceListResponse(items=items)
 
 
@@ -52,20 +63,20 @@ def get_admin_sources(
     response_model=Source,
     status_code=status.HTTP_201_CREATED,
 )
-def post_admin_source(
+async def post_admin_source(
     payload: SourceCreateRequest,
+    db: AsyncSession = Depends(get_db_session),
     admin_user: UserRecord = Depends(get_admin_user),
 ) -> Source:
     del admin_user
     normalized_url = str(payload.url)
-    for source in STORE.sources.values():
-        if str(source.url) == normalized_url:
-            raise APIError(
-                status_code=status.HTTP_409_CONFLICT,
-                code="SOURCE_URL_CONFLICT",
-                message="Source URL already exists",
-                details={"url": normalized_url},
-            )
+    if await source_exists_with_url(db, normalized_url):
+        raise APIError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="SOURCE_URL_CONFLICT",
+            message="Source URL already exists",
+            details={"url": normalized_url},
+        )
 
     source = Source(
         id=uuid4(),
@@ -80,18 +91,20 @@ def post_admin_source(
         terms_url=payload.terms_url,
         notes=None,
     )
-    STORE.sources[str(source.id)] = source
-    return source
+    created = await create_source(db, source)
+    await refresh_store_from_db(db)
+    return created
 
 
 @router.post("/v1/admin/sources/{source_id}/approve", response_model=Source)
-def post_admin_source_approve(
+async def post_admin_source_approve(
     source_id: UUID,
     payload: SourceApprovalRequest,
+    db: AsyncSession = Depends(get_db_session),
     admin_user: UserRecord = Depends(get_admin_user),
 ) -> Source:
     del admin_user
-    source = STORE.sources.get(str(source_id))
+    source = await get_source(db, str(source_id))
     if source is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -115,8 +128,9 @@ def post_admin_source_approve(
             "notes": payload.notes,
         }
     )
-    STORE.sources[str(source_id)] = updated
-    return updated
+    saved = await save_source(db, updated)
+    await refresh_store_from_db(db)
+    return saved
 
 
 @router.post(
@@ -124,13 +138,18 @@ def post_admin_source_approve(
     response_model=IngestionRunResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-def post_admin_ingestion_run(
+async def post_admin_ingestion_run(
     payload: IngestionRunRequest,
+    db: AsyncSession = Depends(get_db_session),
     admin_user: UserRecord = Depends(get_admin_user),
 ) -> IngestionRunResponse:
+    await refresh_store_from_db(db)
+
     approved_sources: list[Source] = []
     for source_id in payload.source_ids:
         source = STORE.sources.get(str(source_id))
+        if source is None:
+            source = await get_source(db, str(source_id))
         if source is None:
             raise APIError(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -151,7 +170,6 @@ def post_admin_ingestion_run(
     run_id = str(job_id)
     created_events = 0
     merge_actions: list[str] = []
-
     for source in approved_sources:
         captured_at = now_sg(STORE)
         raw_event = {
@@ -173,183 +191,189 @@ def post_admin_ingestion_run(
             raw_event["raw_location"] = ""
 
         raw_event_id = str(uuid4())
-        STORE.raw_events[raw_event_id] = RawEventRecord(
-            id=raw_event_id,
-            source_id=str(source.id),
-            external_event_id=None,
-            payload_ref=f"ingestion://{run_id}/{raw_event_id}",
-            raw_title=raw_event.get("raw_title"),
-            raw_date_or_schedule=raw_event.get("raw_date_or_schedule"),
-            raw_location=raw_event.get("raw_location"),
-            raw_description=raw_event.get("raw_description"),
-            raw_price=raw_event.get("raw_price"),
-            raw_url=raw_event.get("raw_url"),
-            raw_media_url=None,
-            captured_at=captured_at,
+        await create_raw_event(
+            db,
+            RawEventRecord(
+                id=raw_event_id,
+                source_id=str(source.id),
+                external_event_id=None,
+                payload_ref=f"ingestion://{run_id}/{raw_event_id}",
+                raw_title=raw_event["raw_title"],
+                raw_date_or_schedule=raw_event["raw_date_or_schedule"],
+                raw_location=raw_event["raw_location"],
+                raw_description=raw_event["raw_description"],
+                raw_price=raw_event["raw_price"],
+                raw_url=raw_event["raw_url"],
+                raw_media_url=None,
+                captured_at=captured_at,
+            ),
         )
 
         normalized = normalize_event_agent(
             payload={"raw_event": raw_event, "city_context": "Singapore"},
             run_id=run_id,
         )
-        if normalized.status == "error":
-            STORE.ingestion_metrics.source_parse_failures_total += 1
-            append_ingestion_log(
-                STORE,
+        if normalized["status"] == "error":
+            await increment_metric(db, "source_parse_failures_total")
+            await append_ingestion_log(
+                db,
                 run_id=run_id,
                 level="error",
                 message="Normalizer failed",
                 user_id=admin_user.id,
                 source_id=str(source.id),
-                payload=FlexibleObject.model_validate(normalized.error.model_dump(mode="python")),
+                payload=normalized["error"],
             )
             continue
 
-        normalized_event = normalized.data.model_dump(mode="python")["normalized_event"]
+        normalized_event = normalized["data"]["normalized_event"]
         confidence_score = float(normalized_event["confidence_score"])
         if confidence_score < 0.6:
-            STORE.ingestion_metrics.normalization_low_confidence_total += 1
-            STORE.ingestion_metrics.source_parse_failures_total += 1
-            append_ingestion_log(
-                STORE,
+            await increment_metric(db, "normalization_low_confidence_total")
+            await increment_metric(db, "source_parse_failures_total")
+            await append_ingestion_log(
+                db,
                 run_id=run_id,
                 level="warning",
                 message="Low confidence normalization",
                 user_id=admin_user.id,
                 source_id=str(source.id),
-                payload=FlexibleObject.model_validate(
-                    {
-                        "confidence_score": confidence_score,
-                        "parsing_notes": normalized_event.get("parsing_notes"),
-                    }
-                ),
+                payload={
+                    "confidence_score": confidence_score,
+                    "parsing_notes": normalized_event.get("parsing_notes"),
+                },
             )
-            continue
 
         dedup = deduplicate_event_agent(
             payload={
-                "candidate_event": CandidateEventForDedup.model_validate(normalized_event),
-                "similar_events": build_similar_events(
-                    STORE,
-                    CandidateEventForDedup.model_validate(normalized_event),
-                ),
+                "candidate_event": normalized_event,
+                "similar_events": build_similar_events(STORE, normalized_event),
             },
             run_id=run_id,
         )
-        if dedup.status == "error":
-            STORE.ingestion_metrics.source_parse_failures_total += 1
-            append_ingestion_log(
-                STORE,
+        if dedup["status"] == "error":
+            await increment_metric(db, "source_parse_failures_total")
+            await append_ingestion_log(
+                db,
                 run_id=run_id,
                 level="error",
                 message="Deduplication failed",
                 user_id=admin_user.id,
                 source_id=str(source.id),
-                payload=FlexibleObject.model_validate(dedup.error.model_dump(mode="python")),
+                payload=dedup["error"],
             )
             continue
-
-        decision = dedup.data.model_dump(mode="json")
-        action = str(decision["merge_action"])
-        merge_actions.append(action)
-        if action == "skip":
-            STORE.ingestion_metrics.dedup_merge_action_total.skip += 1
-        elif action == "merge_sources":
-            STORE.ingestion_metrics.dedup_merge_action_total.merge_sources += 1
         else:
-            STORE.ingestion_metrics.dedup_merge_action_total.create_new += 1
-        append_ingestion_log(
-            STORE,
-            run_id=run_id,
-            level="info",
-            message="Deduplication decision computed",
-            user_id=admin_user.id,
-            source_id=str(source.id),
-            payload=FlexibleObject.model_validate(decision),
-        )
-
-        if action == "create_new":
-            event_id = str(uuid4())
-            start = datetime.fromisoformat(normalized_event["datetime_start"])
-            end_value = normalized_event.get("datetime_end")
-            end = datetime.fromisoformat(end_value) if end_value else None
-            new_event = EventRecord(
-                event_id=event_id,
-                title=normalized_event["title"],
-                category=normalized_event["category"],
-                subcategory=normalized_event.get("subcategory"),
-                description=normalized_event.get("description"),
-                venue_name=normalized_event.get("venue_name"),
-                venue_address=normalized_event.get("venue_address"),
-                occurrences=[
-                    EventOccurrence(
-                        datetime_start=start,
-                        datetime_end=end,
-                        timezone="Asia/Singapore",
-                    )
-                ],
-                price=Price(
-                    min=normalized_event.get("price_min"),
-                    max=normalized_event.get("price_max"),
-                    currency=normalized_event.get("currency"),
-                ),
-                source_provenance=[
-                    SourceProvenance(
-                        source_id=source.id,
-                        source_name=source.name,
-                        source_url=str(source.url),
-                    )
-                ],
-            )
-            STORE.events[event_id] = new_event
-            STORE.event_source_links.append(
-                EventSourceLinkRecord(
-                    id=str(uuid4()),
-                    event_id=event_id,
-                    raw_event_id=raw_event_id,
-                    source_id=str(source.id),
-                    source_url=str(source.url),
-                    external_event_id=None,
-                    merge_confidence=float(decision["confidence"]),
-                    first_seen_at=captured_at,
-                    last_seen_at=captured_at,
-                )
-            )
-            created_events += 1
-            append_ingestion_log(
-                STORE,
+            decision = dedup["data"]
+            action = decision["merge_action"]
+            merge_actions.append(action)
+            await increment_metric(db, "dedup_merge_action_total", action=action)
+            await append_ingestion_log(
+                db,
                 run_id=run_id,
                 level="info",
-                message="Created canonical event from ingestion",
+                message="Deduplication decision computed",
                 user_id=admin_user.id,
                 source_id=str(source.id),
-                event_id=event_id,
-                payload=FlexibleObject.model_validate({"title": new_event.title}),
-            )
-        elif decision.get("duplicate_of_id"):
-            STORE.event_source_links.append(
-                EventSourceLinkRecord(
-                    id=str(uuid4()),
-                    event_id=str(decision["duplicate_of_id"]),
-                    raw_event_id=raw_event_id,
-                    source_id=str(source.id),
-                    source_url=str(source.url),
-                    external_event_id=None,
-                    merge_confidence=float(decision["confidence"]),
-                    first_seen_at=captured_at,
-                    last_seen_at=captured_at,
-                )
+                payload=decision,
             )
 
-    STORE.ingestion_jobs.append(
-        IngestionJobRecord(
-            job_id=str(job_id),
-            source_ids=[str(source_id) for source_id in payload.source_ids],
-            reason=payload.reason,
-            queued_at=now_sg(STORE).isoformat(),
-            run_id=run_id,
-            created_events=created_events,
-            merge_actions=merge_actions,
-        )
+            if action == "create_new":
+                event_id = str(uuid4())
+                start = datetime.fromisoformat(normalized_event["datetime_start"])
+                end_value = normalized_event.get("datetime_end")
+                end = datetime.fromisoformat(end_value) if end_value else None
+                new_event = EventRecord(
+                    event_id=event_id,
+                    title=normalized_event["title"],
+                    category=normalized_event["category"],
+                    subcategory=normalized_event.get("subcategory"),
+                    description=normalized_event.get("description"),
+                    venue_name=normalized_event.get("venue_name"),
+                    venue_address=normalized_event.get("venue_address"),
+                    occurrences=[
+                        EventOccurrence(
+                            datetime_start=start,
+                            datetime_end=end,
+                            timezone="Asia/Singapore",
+                        )
+                    ],
+                    price=Price(
+                        min=normalized_event.get("price_min"),
+                        max=normalized_event.get("price_max"),
+                        currency=normalized_event.get("currency"),
+                    ),
+                    source_provenance=[
+                        SourceProvenance(
+                            source_id=source.id,
+                            source_name=source.name,
+                            source_url=str(source.url),
+                        )
+                    ],
+                )
+                await create_event(db, new_event)
+                await create_event_source_link(
+                    db,
+                    EventSourceLinkRecord(
+                        id=str(uuid4()),
+                        event_id=event_id,
+                        raw_event_id=raw_event_id,
+                        source_id=str(source.id),
+                        source_url=str(source.url),
+                        external_event_id=None,
+                        merge_confidence=float(decision["confidence"]),
+                        first_seen_at=captured_at,
+                        last_seen_at=captured_at,
+                    ),
+                )
+                created_events += 1
+                await append_ingestion_log(
+                    db,
+                    run_id=run_id,
+                    level="info",
+                    message="Created canonical event from ingestion",
+                    user_id=admin_user.id,
+                    source_id=str(source.id),
+                    event_id=event_id,
+                    payload={"title": new_event.title},
+                )
+            elif decision.get("duplicate_of_id"):
+                await append_ingestion_log(
+                    db,
+                    run_id=run_id,
+                    level="info",
+                    message="Deduplicated into existing event",
+                    user_id=admin_user.id,
+                    source_id=str(source.id),
+                    event_id=str(decision["duplicate_of_id"]),
+                    payload={"target_event_id": decision["duplicate_of_id"]},
+                )
+
+                await create_event_source_link(
+                    db,
+                    EventSourceLinkRecord(
+                        id=str(uuid4()),
+                        event_id=str(decision["duplicate_of_id"]),
+                        raw_event_id=raw_event_id,
+                        source_id=str(source.id),
+                        source_url=str(source.url),
+                        external_event_id=None,
+                        merge_confidence=float(decision["confidence"]),
+                        first_seen_at=captured_at,
+                        last_seen_at=captured_at,
+                    ),
+                )
+
+    await create_ingestion_job(
+        db,
+        job_id=str(job_id),
+        source_ids=[str(source_id) for source_id in payload.source_ids],
+        reason=payload.reason,
+        queued_at=now_sg(STORE),
+        run_id=run_id,
+        created_events=created_events,
+        merge_actions=merge_actions,
     )
+    await refresh_store_from_db(db)
+
     return IngestionRunResponse(job_id=job_id, queued_count=len(payload.source_ids))

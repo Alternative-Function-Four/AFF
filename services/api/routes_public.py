@@ -5,10 +5,11 @@ import hashlib
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, Request, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from constants import MAX_NOTIFICATIONS_PER_DAY, TOKEN_TTL_HOURS
+from dependencies import APIError, get_current_user, get_db_session, request_id_for
 from core import is_quiet_hours, now_sg
-from dependencies import APIError, get_current_user, request_id_for
 from logic import (
     build_feed_score,
     default_preference_profile,
@@ -25,8 +26,8 @@ from models import (
     FeedItem,
     FeedMode,
     FeedResponse,
-    InteractionRecord,
     InteractionCreateRequest,
+    InteractionRecord,
     NotificationListResponse,
     NotificationLog,
     NotificationPriority,
@@ -42,16 +43,30 @@ from models import (
     UserRecord,
     UserSummary,
 )
-from state import STORE
+from state import STORE, refresh_store_from_db
+from storage_service import (
+    create_interaction,
+    create_notification,
+    create_or_update_session,
+    create_recommendation,
+    create_user,
+    get_event as get_event_record,
+    get_preference,
+    get_user_by_email,
+    list_events,
+    list_interactions,
+    list_notifications_for_user,
+    save_preference,
+)
 
 router = APIRouter()
 
 
-def issue_session(user_id: str) -> SessionRecord:
+async def issue_session(db: AsyncSession, user_id: str) -> SessionRecord:
     token = f"tok_{uuid4().hex}"
     expires_at = now_sg(STORE) + timedelta(hours=TOKEN_TTL_HOURS)
     session = SessionRecord(token=token, user_id=user_id, expires_at=expires_at)
-    STORE.sessions[token] = session
+    await create_or_update_session(db, session)
     return session
 
 
@@ -64,12 +79,13 @@ def to_auth_response(user: UserRecord, session: SessionRecord) -> AuthSessionRes
     )
 
 
-def ensure_preferences(user_id: str) -> PreferenceProfile:
-    existing = STORE.preferences.get(user_id)
+async def ensure_preferences(db: AsyncSession, user_id: str) -> PreferenceProfile:
+    existing = await get_preference(db, user_id)
     if existing:
         return existing
+
     profile = default_preference_profile(user_id=user_id, now=now_sg(STORE))
-    STORE.preferences[user_id] = profile
+    await save_preference(db, profile)
     return profile
 
 
@@ -79,7 +95,10 @@ def health() -> dict[str, str]:
 
 
 @router.post("/v1/auth/demo-login", response_model=AuthSessionResponse)
-def demo_login(payload: DemoLoginRequest) -> AuthSessionResponse:
+async def demo_login(
+    payload: DemoLoginRequest,
+    db: AsyncSession = Depends(get_db_session),
+) -> AuthSessionResponse:
     role = "admin" if (payload.persona_seed or "").strip().lower() == "admin" else "user"
     user = UserRecord(
         id=str(uuid4()),
@@ -88,14 +107,18 @@ def demo_login(payload: DemoLoginRequest) -> AuthSessionResponse:
         role=role,
         created_at=now_sg(STORE),
     )
-    STORE.users[user.id] = user
-    ensure_preferences(user.id)
-    session = issue_session(user.id)
+    await create_user(db, user)
+    await ensure_preferences(db, user.id)
+    session = await issue_session(db, user.id)
+    await refresh_store_from_db(db)
     return to_auth_response(user, session)
 
 
 @router.post("/v1/auth/login", response_model=AuthSessionResponse)
-def login(payload: PasswordLoginRequest) -> AuthSessionResponse:
+async def login(
+    payload: PasswordLoginRequest,
+    db: AsyncSession = Depends(get_db_session),
+) -> AuthSessionResponse:
     normalized_email = payload.email.strip().lower()
     if not normalized_email:
         raise APIError(
@@ -105,10 +128,8 @@ def login(payload: PasswordLoginRequest) -> AuthSessionResponse:
             details={"field": "email"},
         )
 
-    user_id = STORE.users_by_email.get(normalized_email)
-    if user_id and user_id in STORE.users:
-        user = STORE.users[user_id]
-    else:
+    user = await get_user_by_email(db, normalized_email)
+    if user is None:
         local_part = normalized_email.split("@", 1)[0]
         role = "admin" if "admin" in local_part else "user"
         user = UserRecord(
@@ -118,22 +139,26 @@ def login(payload: PasswordLoginRequest) -> AuthSessionResponse:
             role=role,
             created_at=now_sg(STORE),
         )
-        STORE.users[user.id] = user
-        STORE.users_by_email[normalized_email] = user.id
+        await create_user(db, user)
 
-    ensure_preferences(user.id)
-    session = issue_session(user.id)
+    await ensure_preferences(db, user.id)
+    session = await issue_session(db, user.id)
+    await refresh_store_from_db(db)
     return to_auth_response(user, session)
 
 
 @router.get("/v1/preferences", response_model=PreferenceProfile)
-def get_preferences(user: UserRecord = Depends(get_current_user)) -> PreferenceProfile:
-    return ensure_preferences(user.id)
+async def get_preferences(
+    db: AsyncSession = Depends(get_db_session),
+    user: UserRecord = Depends(get_current_user),
+) -> PreferenceProfile:
+    return await ensure_preferences(db, user.id)
 
 
 @router.put("/v1/preferences", response_model=PreferenceProfile)
-def put_preferences(
+async def put_preferences(
     payload: PreferenceProfileInput,
+    db: AsyncSession = Depends(get_db_session),
     user: UserRecord = Depends(get_current_user),
 ) -> PreferenceProfile:
     profile = PreferenceProfile(
@@ -141,17 +166,19 @@ def put_preferences(
         updated_at=now_sg(STORE),
         **payload.model_dump(),
     )
-    STORE.preferences[user.id] = profile
+    await save_preference(db, profile)
+    await refresh_store_from_db(db)
     return profile
 
 
 @router.post("/v1/interactions", response_model=CreatedResponse, status_code=status.HTTP_201_CREATED)
-def post_interactions(
+async def post_interactions(
     payload: InteractionCreateRequest,
+    db: AsyncSession = Depends(get_db_session),
     user: UserRecord = Depends(get_current_user),
 ) -> CreatedResponse:
     event_id = str(payload.event_id)
-    if event_id not in STORE.events:
+    if not await get_event_record(db, event_id):
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="EVENT_NOT_FOUND",
@@ -161,7 +188,8 @@ def post_interactions(
 
     created = now_sg(STORE)
     record_id = str(uuid4())
-    STORE.interactions.append(
+    await create_interaction(
+        db,
         InteractionRecord(
             id=record_id,
             user_id=user.id,
@@ -169,28 +197,34 @@ def post_interactions(
             signal=payload.signal.value,
             context=payload.context,
             created_at=created,
-        )
+        ),
     )
+    await refresh_store_from_db(db)
     return CreatedResponse(id=UUID(record_id), created_at=created)
 
 
 @router.get("/v1/feed", response_model=FeedResponse)
-def get_feed(
+async def get_feed(
     request: Request,
     lat: float,
     lng: float,
     time_window: TimeWindow,
     budget: BudgetMode,
     mode: FeedMode,
+    db: AsyncSession = Depends(get_db_session),
     user: UserRecord = Depends(get_current_user),
 ) -> FeedResponse:
+    del lat
+    del lng
     del mode
 
-    profile = ensure_preferences(user.id)
+    events = await list_events(db)
+    interactions = await list_interactions(db)
+    profile = await ensure_preferences(db, user.id)
     now = now_sg(STORE)
 
     items: list[FeedItem] = []
-    for event in STORE.events.values():
+    for event in events:
         if not event_matches_window(event, time_window, now):
             continue
         score, reasons = build_feed_score(
@@ -198,7 +232,7 @@ def get_feed(
             event=event,
             profile=profile,
             budget=budget,
-            interactions=STORE.interactions,
+            interactions=interactions,
         )
         items.append(
             FeedItem(
@@ -220,11 +254,13 @@ def get_feed(
         coverage_warning = "Limited candidate coverage for selected filters."
 
     context_hash = hashlib.sha256(
-        f"{user.id}:{time_window.value}:{budget.value}:{lat}:{lng}".encode("utf-8")
+        f"{user.id}:{time_window.value}:{budget.value}:{now}:{user.id}".encode("utf-8")
     ).hexdigest()[:16]
     created_at = now_sg(STORE)
+
+    recommendations: list[RecommendationRecord] = []
     for index, item in enumerate(items, start=1):
-        STORE.recommendations.append(
+        recommendations.append(
             RecommendationRecord(
                 id=str(uuid4()),
                 user_id=user.id,
@@ -238,6 +274,10 @@ def get_feed(
             )
         )
 
+    for recommendation in recommendations:
+        await create_recommendation(db, recommendation)
+    await refresh_store_from_db(db)
+
     return FeedResponse(
         items=items,
         coverage_warning=coverage_warning,
@@ -246,9 +286,13 @@ def get_feed(
 
 
 @router.get("/v1/events/{event_id}", response_model=EventDetail)
-def get_event(event_id: UUID, user: UserRecord = Depends(get_current_user)) -> EventDetail:
+async def get_event(
+    event_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+    user: UserRecord = Depends(get_current_user),
+) -> EventDetail:
     del user
-    event = STORE.events.get(str(event_id))
+    event = await get_event_record(db, str(event_id))
     if event is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -275,13 +319,14 @@ def get_event(event_id: UUID, user: UserRecord = Depends(get_current_user)) -> E
     response_model=CreatedResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def post_feedback(
+async def post_feedback(
     event_id: UUID,
     payload: EventFeedbackRequest,
+    db: AsyncSession = Depends(get_db_session),
     user: UserRecord = Depends(get_current_user),
 ) -> CreatedResponse:
     event_id_str = str(event_id)
-    if event_id_str not in STORE.events:
+    if not await get_event_record(db, event_id_str):
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="EVENT_NOT_FOUND",
@@ -291,7 +336,8 @@ def post_feedback(
 
     created = now_sg(STORE)
     record_id = str(uuid4())
-    STORE.interactions.append(
+    await create_interaction(
+        db,
         InteractionRecord(
             id=record_id,
             user_id=user.id,
@@ -299,19 +345,20 @@ def post_feedback(
             signal=payload.signal.value,
             context=payload.context,
             created_at=created,
-        )
+        ),
     )
+    await refresh_store_from_db(db)
     return CreatedResponse(id=UUID(record_id), created_at=created)
 
 
 @router.get("/v1/notifications", response_model=NotificationListResponse)
-def get_notifications(
+async def get_notifications(
     limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db_session),
     user: UserRecord = Depends(get_current_user),
 ) -> NotificationListResponse:
-    items = [log for uid, log in STORE.notification_logs if uid == user.id]
-    items.sort(key=lambda item: item.created_at, reverse=True)
-    return NotificationListResponse(items=items[:limit])
+    rows = await list_notifications_for_user(db, user.id, limit)
+    return NotificationListResponse(items=[notification for _, notification in rows])
 
 
 @router.post(
@@ -319,11 +366,13 @@ def get_notifications(
     response_model=TestNotificationResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-def post_test_notification(
+async def post_test_notification(
     payload: TestNotificationRequest,
+    db: AsyncSession = Depends(get_db_session),
     user: UserRecord = Depends(get_current_user),
 ) -> TestNotificationResponse:
-    event = STORE.events.get(str(payload.event_id))
+    await refresh_store_from_db(db)
+    event = await get_event_record(db, str(payload.event_id))
     if event is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -349,7 +398,9 @@ def post_test_notification(
         sent_at=None,
         created_at=now,
     )
-    STORE.notification_logs.append((user.id, notification))
+    await create_notification(db, user.id, notification)
+    await refresh_store_from_db(db)
+
     return TestNotificationResponse(
         queued=notification.status == NotificationStatus.queued,
         notification_id=notification.id,

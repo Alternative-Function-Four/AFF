@@ -9,8 +9,11 @@ dependencies = [
   "uvicorn",
   "psycopg2-binary",
   "sqlalchemy",
+  "asyncpg",
+  "aiosqlite",
+  "alembic",
   "pydantic-ai-slim[logfire,mcp,openai]>=1.63.0",
-  "pydantic>=2.12.5",
+  "pydantic",
 ]
 
 [dependency-groups]
