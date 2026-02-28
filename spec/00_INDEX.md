@@ -1,0 +1,11 @@
+Index
+- spec/01_PRODUCT.md
+- spec/10_ARCHITECTURE.md
+- spec/11_DATA_MODEL.md
+- spec/12_PIPELINE.md
+- spec/13_DEDUP.md
+- spec/14_RANKING.md
+- spec/15_NOTIFICATIONS.md
+- spec/16_SECURITY.md
+- spec/21_INFRA.md
+- spec/22_CODEX.md

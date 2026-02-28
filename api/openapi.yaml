@@ -1,0 +1,18 @@
+openapi: 3.0.3
+info:
+  title: Activity Assistant API (SG)
+  version: 1.0.0
+paths:
+  /health:
+    get:
+      responses:
+        '200': { description: OK }
+  /v1/feed:
+    get:
+      parameters:
+        - in: query
+          name: mode
+          required: true
+          schema: { type: string, enum: [today, weekend, week] }
+      responses:
+        '200': { description: OK }

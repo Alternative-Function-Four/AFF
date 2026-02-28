@@ -1,0 +1,5 @@
+version: 1
+skills:
+  - name: implement_feed_endpoint
+  - name: implement_ingestion_fetch
+  - name: implement_dedupe_worker
