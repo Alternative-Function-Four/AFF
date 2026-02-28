@@ -11,6 +11,6 @@ command = "npx"
 args = ["@playwright/mcp@latest"]
 
 [mcp_servers.serena]
-args = ["--from", "git+https://github.com/oraios/serena", "serena-mcp-server", "--context", "ide-assistant", "--open-web-dashboard", "False"]
+args = ["--from", "git+https://github.com/oraios/serena", "serena-mcp-server", "--context", "codex", "--open-web-dashboard", "False"]
 command = "uvx"
 
