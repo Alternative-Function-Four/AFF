@@ -5,6 +5,7 @@ import re
 import statistics
 import time
 
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 import pytest
 
@@ -76,6 +77,8 @@ def test_api_contract_endpoints_exist_in_openapi_and_app() -> None:
 
     app_pairs: set[tuple[str, str]] = set()
     for route in main.app.routes:
+        if not isinstance(route, APIRoute):
+            continue
         methods = getattr(route, "methods", set())
         for method in methods:
             if method in {"HEAD", "OPTIONS"}:
