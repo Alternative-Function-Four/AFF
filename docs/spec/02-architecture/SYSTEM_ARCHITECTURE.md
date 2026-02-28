@@ -50,7 +50,7 @@ Queue
 
 ### API Modules
 
-- `auth`: token issuance and validation for demo auth, login doc endpoints, OAuth stubs.
+- `auth`: token issuance and validation for demo auth and login doc endpoints.
 - `preferences`: CRUD for preference profile.
 - `events`: read event details and capture feedback.
 - `feed`: context-aware recommendation retrieval.

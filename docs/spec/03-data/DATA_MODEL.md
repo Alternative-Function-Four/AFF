@@ -24,7 +24,7 @@ Canonical data model for the AFF Singapore prototype.
 
 - `id` UUID PK
 - `user_id` UUID FK -> users(id)
-- `provider` TEXT NOT NULL (`demo|password|oauth_google|oauth_apple`)
+- `provider` TEXT NOT NULL (`demo|password`)
 - `provider_subject` TEXT NOT NULL
 - `is_stub` BOOLEAN NOT NULL DEFAULT FALSE
 - `created_at` TIMESTAMPTZ NOT NULL

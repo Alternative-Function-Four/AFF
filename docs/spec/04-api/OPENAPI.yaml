@@ -71,60 +71,6 @@ paths:
         "401":
           $ref: '#/components/responses/ErrorResponse'
 
-  /v1/auth/oauth/start:
-    post:
-      summary: Start OAuth flow (prototype stub allowed)
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/OAuthStartRequest'
-            example:
-              provider: google
-              redirect_uri: aff://oauth/callback
-      responses:
-        "200":
-          description: OAuth start response
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [authorization_url, state]
-                properties:
-                  authorization_url:
-                    type: string
-                    format: uri
-                  state:
-                    type: string
-        "400":
-          $ref: '#/components/responses/ErrorResponse'
-
-  /v1/auth/oauth/callback:
-    post:
-      summary: Complete OAuth flow (prototype stub allowed)
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/OAuthCallbackRequest'
-            example:
-              provider: google
-              code: oauth-code
-              state: opaque-state
-      responses:
-        "200":
-          description: Authenticated session
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthSessionResponse'
-        "400":
-          $ref: '#/components/responses/ErrorResponse'
-
   /v1/preferences:
     get:
       summary: Get preference profile
@@ -526,28 +472,6 @@ components:
           type: string
           format: email
         password:
-          type: string
-
-    OAuthStartRequest:
-      type: object
-      required: [provider, redirect_uri]
-      properties:
-        provider:
-          type: string
-          enum: [google, apple]
-        redirect_uri:
-          type: string
-
-    OAuthCallbackRequest:
-      type: object
-      required: [provider, code, state]
-      properties:
-        provider:
-          type: string
-          enum: [google, apple]
-        code:
-          type: string
-        state:
           type: string
 
     PreferenceProfileInput:
