@@ -4,7 +4,7 @@ import math
 from datetime import datetime
 from typing import Sequence
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import bindparam, desc, delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1148,14 +1148,69 @@ async def clear_all_tables(session: AsyncSession) -> None:
 async def seed_initial_data(session: AsyncSession) -> dict[str, Any]:
     await clear_all_tables(session)
     await create_default_metrics(session)
+    now = _now_sg()
+    seed_topics = [
+        ("events", "Events"),
+        ("food", "Food"),
+        ("nightlife", "Nightlife"),
+        ("sports", "Sports"),
+        ("sightseeing", "Sightseeing"),
+        ("museums", "Museums"),
+        ("outdoors", "Outdoors"),
+        ("movies", "Movies"),
+    ]
+    session.add_all(
+        [
+            Topic(
+                id=str(uuid4()),
+                slug=slug,
+                name=name,
+                city="Singapore",
+                description=f"{name} topics for discovery and ingestion workflows",
+                is_active=True,
+                created_at=now,
+            )
+            for slug, name in seed_topics
+        ]
+    )
+    await session.commit()
     return await get_store_snapshot(session)
 
 
 async def ensure_seed_data(session: AsyncSession) -> dict[str, Any]:
     existing_count = await session.scalar(select(func.count(Event.id)))
-    if existing_count:
+    topic_count = await session.scalar(select(func.count(Topic.id)))
+    if existing_count and topic_count:
         return await get_store_snapshot(session)
-    return await seed_initial_data(session)
+    if not topic_count:
+        now = _now_sg()
+        seed_topics = [
+            ("events", "Events"),
+            ("food", "Food"),
+            ("nightlife", "Nightlife"),
+            ("sports", "Sports"),
+            ("sightseeing", "Sightseeing"),
+            ("museums", "Museums"),
+            ("outdoors", "Outdoors"),
+            ("movies", "Movies"),
+        ]
+        session.add_all(
+            [
+                Topic(
+                    id=str(uuid4()),
+                    slug=slug,
+                    name=name,
+                    city="Singapore",
+                    description=f"{name} topics for discovery and ingestion workflows",
+                    is_active=True,
+                    created_at=now,
+                )
+                for slug, name in seed_topics
+            ]
+        )
+        await session.commit()
+        return await get_store_snapshot(session)
+    return await get_store_snapshot(session)
 
 
 async def reset_store_snapshot() -> dict[str, Any]:
