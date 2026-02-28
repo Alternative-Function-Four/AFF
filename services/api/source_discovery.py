@@ -37,6 +37,7 @@ class SourceQualityAssessment(BaseModel):
     source_name: str = Field(min_length=1)
     source_type: str = "discovered_event_listings"
     access_method: str = SourceAccessMethod.html_extract
+    is_relevant: bool = True
     policy_risk_score: int = Field(ge=0, le=100)
     quality_score: int = Field(ge=0, le=100)
     crawl_frequency_minutes: int = Field(ge=15, le=10080)
@@ -59,11 +60,6 @@ class _DiscoveryRuntime:
     topic_links_created: int = 0
     skipped_sources: int = 0
     failed_sources: int = 0
-
-
-def _normalize_query(raw: str) -> str:
-    value = raw.lower().strip()
-    return re.sub(r"\s+", " ", value)
 
 
 def _canonicalize_url(url: str) -> str:
@@ -176,73 +172,6 @@ def _fetch_page(url: str) -> dict[str, Any]:
     }
 
 
-def _validate_event_page(url: str, html: str) -> dict[str, Any]:
-    if not html:
-        return {"is_relevant": False, "reason": "empty_or_unreachable"}
-
-    title = _extract_title(html)
-    description = _extract_description(html)
-    text_blob = _strip_html(html)
-    normalized_url = _normalize_query(url)
-
-    event_markers = (
-        "event",
-        "events",
-        "calendar",
-        "listing",
-        "listings",
-        "agenda",
-        "tickets",
-        "show",
-        "festival",
-    )
-    singapore_markers = (
-        "singapore",
-        "sg",
-        "marina bay",
-        "orchard",
-        "sentosa",
-        "orchard road",
-    )
-
-    title_text = (title or "").lower()
-    body_text = text_blob.lower()
-    has_event_signal = any(marker in title_text for marker in event_markers) or any(
-        marker in body_text for marker in event_markers
-    )
-    is_sg = "singapore" in normalized_url or any(
-        marker in title_text for marker in singapore_markers
-    ) or any(marker in body_text for marker in singapore_markers)
-
-    if not has_event_signal:
-        return {
-            "is_relevant": False,
-            "reason": "missing_event_listing_signal",
-            "page_title": title,
-            "description": description,
-            "confidence": 0.25,
-        }
-
-    confidence = 0.7 if is_sg else 0.45
-    return {
-        "is_relevant": is_sg,
-        "reason": "ok" if is_sg else "weak_city_signal",
-        "page_title": title,
-        "description": description,
-        "confidence": confidence,
-    }
-
-
-def _fallback_candidate_urls(topic: TopicRecord) -> list[str]:
-    safe_slug = re.sub(r"[^a-z0-9-]", "-", topic.slug.lower())
-    return [
-        f"https://{safe_slug}.com/events/singapore",
-        f"https://www.{safe_slug}.com/singapore/events",
-        f"https://www.{safe_slug}.com/events",
-        f"https://www.sg{safe_slug}.com/events",
-    ]
-
-
 def _as_sg_now() -> datetime:
     return datetime.now(SG_TZ)
 
@@ -275,36 +204,6 @@ def _build_discovery_agent() -> Agent[None, list[str]] | None:
     def fetch_page(url: str) -> dict[str, Any]:
         return _fetch_page(url)
 
-    @agent.tool_plain
-    def validate_event_page(url: str, html: str) -> dict[str, Any]:
-        return _validate_event_page(url=url, html=html)
-
-    @agent.tool_plain
-    def check_existing_source(url: str) -> dict[str, Any]:
-        return {
-            "url": _canonicalize_url(url),
-            "exists": False,
-            "source_id": None,
-            "note": "runtime check is handled in orchestration",
-        }
-
-    @agent.tool_plain
-    def insert_source(data: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "inserted": False,
-            "source_id": data.get("url"),
-            "note": "persistence handled in orchestration layer",
-        }
-
-    @agent.tool_plain
-    def link_source_to_topic(source_id: str, topic_id: str) -> dict[str, Any]:
-        return {
-            "source_id": source_id,
-            "topic_id": topic_id,
-            "linked": False,
-            "note": "persistence handled in orchestration layer",
-        }
-
     return agent
 
 
@@ -331,45 +230,6 @@ def _build_scoring_agent() -> Agent[None, SourceQualityAssessment] | None:
         output_type=SourceQualityAssessment,
         name="SourceScoringAgent",
     )
-
-
-async def check_existing_source(url: str) -> dict[str, Any]:
-    normalized = _canonicalize_url(url)
-    return {
-        "url": normalized,
-        "exists": False,
-        "source_id": None,
-        "note": "check existing source outside agent run context",
-    }
-
-
-async def insert_source(structured_source: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "source_id": structured_source.get("url"),
-        "inserted": False,
-        "note": "insert_source requires persistence in run orchestration",
-    }
-
-
-async def link_source_to_topic(source_id: str, topic_id: str) -> dict[str, Any]:
-    return {
-        "linked": False,
-        "source_id": source_id,
-        "topic_id": topic_id,
-        "note": "link_source_to_topic requires persistence in run orchestration",
-    }
-
-
-def search_web(query: str) -> list[str]:
-    return _search_web(query)
-
-
-def fetch_page(url: str) -> dict[str, Any]:
-    return _fetch_page(url)
-
-
-def validate_event_page(html: str) -> dict[str, Any]:
-    return _validate_event_page(url="", html=html)
 
 
 def _check_existing_source(
@@ -405,7 +265,8 @@ def _run_agent_for_topic(
 ) -> list[str]:
     prompt = (
         f"Return JSON array of up to {max_results} concrete Singapore event-listing URLs "
-        f"for topic '{topic.name}'. Focus on official sources and event pages, not homepages."
+        f"for topic '{topic.name}'. Only return pages that are for Singapore and contain event "
+        f"listings such as concerts or activities. Focus on official listing/event pages, not homepages."
     )
     result = agent.run_sync(prompt)
     raw_output = result.output or []
@@ -436,82 +297,25 @@ def _resolve_access_method(value: str) -> SourceAccessMethod:
         return SourceAccessMethod.html_extract
 
 
-def _build_fallback_assessment(
-    topic: TopicRecord,
-    canonical_url: str,
-    validation: dict[str, Any],
-    page_title: str | None,
-    description: str | None,
-) -> SourceQualityAssessment:
-    confidence = float(validation.get("confidence") or 0.0)
-    parsed = urlparse(canonical_url)
-    path = parsed.path.lower()
-    title = (page_title or "").lower()
-    desc = (description or "").lower()
-
-    quality_score = 40
-    if "events" in path:
-        quality_score += 20
-    if "listing" in path or "calendar" in path:
-        quality_score += 10
-    if "event" in title:
-        quality_score += 15
-    if "events" in title or "calendar" in title:
-        quality_score += 10
-    if "singapore" in title or "singapore" in desc:
-        quality_score += 10
-    if parsed.scheme == "https":
-        quality_score += 5
-    quality_score = min(100, max(0, quality_score + int(confidence * 20)))
-
-    policy_risk_score = 15 if parsed.scheme == "https" else 35
-    if parsed.netloc and (
-        "facebook.com" in parsed.netloc.lower()
-        or "instagram.com" in parsed.netloc.lower()
-        or "x.com" in parsed.netloc.lower()
-    ):
-        policy_risk_score += 25
-
-    policy_risk_score = min(100, max(0, policy_risk_score))
-
-    source_name = f"{topic.name} - Event Listings"
-    if title:
-        source_name = title[:120].strip()[:120]
-
-    return SourceQualityAssessment(
-        source_name=source_name[:120],
-        policy_risk_score=policy_risk_score,
-        quality_score=quality_score,
-        crawl_frequency_minutes=360,
-        assessment_confidence=0.45,
-        notes="fallback scoring",
-    )
-
-
 def _assess_source(
-    scoring_agent: Agent[None, SourceQualityAssessment] | None,
+    scoring_agent: Agent[None, SourceQualityAssessment],
     topic: TopicRecord,
     query: str,
     canonical_url: str,
-    validation: dict[str, Any],
     page_title: str | None,
     description: str | None,
     page_text: str,
-) -> SourceQualityAssessment:
-    if scoring_agent is None:
-        return _build_fallback_assessment(topic, canonical_url, validation, page_title, description)
-
+) -> SourceQualityAssessment | None:
     prompt = f"""You are scoring one candidate source.
 Topic: {topic.name}
 Query used: {query}
 Canonical URL: {canonical_url}
-Validation confidence: {validation.get("confidence", 0.0)}
-Validation reason: {validation.get("reason", "")}
 Page title: {page_title or ""}
 Description: {description or ""}
 Page text sample (lowercase): {page_text[:900]}
 
 Return a scoring profile with realistic values:
+- is_relevant: true only if the page contains event listings (such as concerts or activities) AND the content is about Singapore. If either condition is missing, return false.
 - source_name: short user-friendly name.
 - source_type: one of discovered_event_listings, scrape_listings, api_events.
 - access_method: one of api, rss, ics, html_extract, manual.
@@ -528,30 +332,24 @@ Return a scoring profile with realistic values:
             raise ValueError("no assessment")
         return result.output
     except Exception:
-        return _build_fallback_assessment(topic, canonical_url, validation, page_title, description)
+        return None
 
 
 async def _process_topic(
     topic: TopicRecord,
     runtime: _DiscoveryRuntime,
     db_session,
-    agent: Agent[None, list[str]] | None,
-    scoring_agent: Agent[None, SourceQualityAssessment] | None,
+    agent: Agent[None, list[str]],
+    scoring_agent: Agent[None, SourceQualityAssessment],
 ) -> None:
     max_per_topic = runtime.max_new_per_topic
     query = f"{topic.name} Singapore events listings"
 
-    if agent is None:
-        candidates = _search_web(query)
-        if not candidates:
-            candidates = _fallback_candidate_urls(topic)
-    else:
-        try:
-            candidates = _run_agent_for_topic(agent, topic, max_per_topic * 2)
-        except Exception:
-            candidates = _search_web(query)
-            if not candidates:
-                candidates = _fallback_candidate_urls(topic)
+    try:
+        candidates = _run_agent_for_topic(agent, topic, max_per_topic * 2)
+    except Exception:
+        runtime.failed_sources += 1
+        return
 
     discovered_for_topic = 0
     for raw_url in candidates:
@@ -590,24 +388,24 @@ async def _process_topic(
             runtime.failed_sources += 1
             continue
 
-        validation = _validate_event_page(canonical_url, page["html"])
-        if not validation.get("is_relevant", False):
-            runtime.failed_sources += 1
-            runtime.skipped_sources += 1
-            continue
-
-        page_title = validation.get("page_title")
-        description = validation.get("description")
+        page_title = _extract_title(page.get("html", ""))
+        description = _extract_description(page.get("html", ""))
         assessment = _assess_source(
             scoring_agent=scoring_agent,
             topic=topic,
             query=query,
             canonical_url=canonical_url,
-            validation=validation,
             page_title=page_title,
             description=description,
             page_text=_strip_html(page.get("html", "")),
         )
+        if assessment is None:
+            runtime.failed_sources += 1
+            continue
+        if not assessment.is_relevant:
+            runtime.failed_sources += 1
+            runtime.skipped_sources += 1
+            continue
         source_payload = SourceModel(
             id=uuid4(),
             name=assessment.source_name,
@@ -624,14 +422,14 @@ async def _process_topic(
                 "topic_ids": [topic.id],
                 "discovered_via": "source_discovery_agent",
                 "origin_query": query,
-                "confidence": validation.get("confidence"),
+                "confidence": assessment.assessment_confidence,
                 "agent_assessment_confidence": assessment.assessment_confidence,
             },
             discovered_at=_as_sg_now(),
             terms_url=None,
             notes=" | ".join(
                 item
-                for item in [validation.get("reason"), assessment.notes]
+                for item in [assessment.notes]
                 if item
             ),
             deleted_at=None,
@@ -679,8 +477,10 @@ async def run_source_discovery(
         max_new_per_domain=max_new_per_domain,
         max_new_per_topic=max_new_per_topic,
     )
-    topic_agent: Agent[None, list[str]] | None = _build_discovery_agent()
-    scoring_agent: Agent[None, SourceQualityAssessment] | None = _build_scoring_agent()
+    topic_agent = _build_discovery_agent()
+    scoring_agent = _build_scoring_agent()
+    if topic_agent is None or scoring_agent is None:
+        raise RuntimeError("Source discovery and scoring agents must be configured")
 
     for topic in topic_records:
         runtime.topics_processed += 1
