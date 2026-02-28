@@ -13,9 +13,9 @@ I want to log in with demo auth and save preferences
 So that I can receive personalized activity recommendations.
 
 **Acceptance Criteria:**
-- [ ] `POST /v1/auth/demo-login` returns token and user summary.
-- [ ] `PUT /v1/preferences` persists user preferences.
-- [ ] `GET /v1/preferences` returns previously saved values.
+- [x] `POST /v1/auth/demo-login` returns token and user summary.
+- [x] `PUT /v1/preferences` persists user preferences.
+- [x] `GET /v1/preferences` returns previously saved values.
 
 ### Story 2: Personalized Feed and Feedback Loop
 
@@ -24,9 +24,9 @@ I want to fetch ranked feed items and send feedback
 So that future ranking reflects my preferences and interactions.
 
 **Acceptance Criteria:**
-- [ ] `GET /v1/feed` returns ranked items with reasons and source provenance.
-- [ ] `POST /v1/events/{event_id}/feedback` records user signal.
-- [ ] At least one candidate ranking changes after feedback.
+- [x] `GET /v1/feed` returns ranked items with reasons and source provenance.
+- [x] `POST /v1/events/{event_id}/feedback` records user signal.
+- [x] At least one candidate ranking changes after feedback.
 
 ### Story 3: Admin Source Governance and Ingestion Trigger
 
@@ -35,9 +35,9 @@ I want to create, approve, and run ingestion for sources
 So that only policy-compliant sources enter the ingestion pipeline.
 
 **Acceptance Criteria:**
-- [ ] `POST /v1/admin/sources` creates source with pending status.
-- [ ] `POST /v1/admin/sources/{id}/approve` changes source status.
-- [ ] `POST /v1/admin/ingestion/run` rejects non-approved sources.
+- [x] `POST /v1/admin/sources` creates source with pending status.
+- [x] `POST /v1/admin/sources/{id}/approve` changes source status.
+- [x] `POST /v1/admin/ingestion/run` rejects non-approved sources.
 
 ### Story 4: Notification Logging with Safety Gates
 
@@ -46,9 +46,9 @@ I want notifications to be useful but not spammy
 So that I receive relevant alerts within policy limits.
 
 **Acceptance Criteria:**
-- [ ] `POST /v1/notifications/test` creates a notification log entry.
-- [ ] Max 2 notifications per user per day is enforced.
-- [ ] Quiet-hour suppression (22:00-08:00 Asia/Singapore) is enforced.
+- [x] `POST /v1/notifications/test` creates a notification log entry.
+- [x] Max 2 notifications per user per day is enforced.
+- [x] Quiet-hour suppression (22:00-08:00 Asia/Singapore) is enforced.
 
 ## Clarifications
 
